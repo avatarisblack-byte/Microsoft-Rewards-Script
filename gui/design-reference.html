@@ -378,41 +378,6 @@
                     </div>
                 </div>
 
-                <!-- 只读配置（不建议在此修改） -->
-                <div class="bg-white p-6 rounded-2xl border border-gray-200 card-shadow border-dashed">
-                    <h3 class="text-base font-bold text-gray-800 mb-5 flex items-center gap-2">
-                        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-                        只读配置（不建议在此修改）
-                    </h3>
-                    <p class="text-xs text-gray-400 mb-4">以下选项涉及运行关键路径或复杂结构，如需调整请点击上方"打开配置文件"手动编辑。</p>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-500 mb-1">Session 目录 (sessionPath)</label>
-                            <input id="ro-sessionPath" type="text" readonly class="w-full border border-gray-200 rounded-lg p-2.5 text-sm bg-gray-50 text-gray-500">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-500 mb-1">并行集群数 (clusters)</label>
-                            <input id="ro-clusters" type="text" readonly class="w-full border border-gray-200 rounded-lg p-2.5 text-sm bg-gray-50 text-gray-500">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-500 mb-1">查询引擎数组 (queryEngines)</label>
-                            <input id="ro-queryEngines" type="text" readonly class="w-full border border-gray-200 rounded-lg p-2.5 text-sm bg-gray-50 text-gray-500">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-500 mb-1">并行搜索 (parallelSearching, 已锁定)</label>
-                            <input id="ro-parallelSearching" type="text" readonly value="false (高风险，已锁定)" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm bg-gray-50 text-gray-500">
-                        </div>
-                        <div class="col-span-1 md:col-span-2">
-                            <label class="block text-xs font-semibold text-gray-500 mb-1">控制台日志过滤详情 (consoleLogFilter)</label>
-                            <input id="ro-consoleLogFilter" type="text" readonly class="w-full border border-gray-200 rounded-lg p-2.5 text-sm bg-gray-50 text-gray-500">
-                        </div>
-                        <div class="col-span-1 md:col-span-2">
-                            <label class="block text-xs font-semibold text-gray-500 mb-1">Webhook 通知 (webhook)</label>
-                            <input id="ro-webhook" type="text" readonly class="w-full border border-gray-200 rounded-lg p-2.5 text-sm bg-gray-50 text-gray-500">
-                        </div>
-                    </div>
-                </div>
-
                 <!-- 模块 3: 搜索与延迟配置 -->
                 <div class="bg-white p-6 rounded-2xl border border-gray-100 card-shadow">
                     <h3 class="text-base font-bold text-gray-800 mb-5 flex items-center gap-2">
@@ -461,6 +426,41 @@
                                 <label class="block text-xs font-semibold text-gray-500 mb-1">网页停留时间 (Visit Time)</label>
                                 <input id="cfg-searchResultVisitTime" type="text" value="20sec" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm">
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 只读配置（不建议在此修改） -->
+                <div class="bg-white p-6 rounded-2xl border border-gray-200 card-shadow border-dashed">
+                    <h3 class="text-base font-bold text-gray-800 mb-5 flex items-center gap-2">
+                        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                        只读配置（不建议在此修改）
+                    </h3>
+                    <p class="text-xs text-gray-400 mb-4">以下选项涉及运行关键路径或复杂结构，如需调整请点击上方"打开配置文件"手动编辑。</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">Session 目录 (sessionPath)</label>
+                            <input id="ro-sessionPath" type="text" readonly class="w-full border border-gray-200 rounded-lg p-2.5 text-sm bg-gray-50 text-gray-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">并行集群数 (clusters)</label>
+                            <input id="ro-clusters" type="text" readonly class="w-full border border-gray-200 rounded-lg p-2.5 text-sm bg-gray-50 text-gray-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">查询引擎数组 (queryEngines)</label>
+                            <input id="ro-queryEngines" type="text" readonly class="w-full border border-gray-200 rounded-lg p-2.5 text-sm bg-gray-50 text-gray-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">并行搜索 (parallelSearching, 已锁定)</label>
+                            <input id="ro-parallelSearching" type="text" readonly value="false (高风险，已锁定)" class="w-full border border-gray-200 rounded-lg p-2.5 text-sm bg-gray-50 text-gray-500">
+                        </div>
+                        <div class="col-span-1 md:col-span-2">
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">控制台日志过滤详情 (consoleLogFilter)</label>
+                            <input id="ro-consoleLogFilter" type="text" readonly class="w-full border border-gray-200 rounded-lg p-2.5 text-sm bg-gray-50 text-gray-500">
+                        </div>
+                        <div class="col-span-1 md:col-span-2">
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">Webhook 通知 (webhook)</label>
+                            <input id="ro-webhook" type="text" readonly class="w-full border border-gray-200 rounded-lg p-2.5 text-sm bg-gray-50 text-gray-500">
                         </div>
                     </div>
                 </div>

@@ -1164,6 +1164,12 @@
             // 初始化时拉取任务状态（若服务端已有子进程在跑则显示运行中）
             pollTaskStatus();
 
+            // 心跳维持：每 3 秒向 /api/heartbeat 发请求，告知服务端网页仍在打开
+            // 若网页关闭，服务端超过 8 秒收不到心跳会自动退出进程
+            setInterval(() => {
+                fetch('/api/heartbeat').catch(() => {/* 服务退出后忽略失败 */});
+            }, 3000);
+
             // 每 5 秒轮询任务状态（子进程日志实时更新）
             setInterval(pollTaskStatus, 5000);
 

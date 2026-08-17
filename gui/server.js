@@ -381,6 +381,10 @@ function writeSummaryFile(summary) {
     }
 }
 
+// ===== 心跳检测（网页关闭自动退出） =====
+// 前端每 3 秒请求 /api/heartbeat 维持存活；超过 8 秒未收到心跳则视为网页已关闭，自动退出服务
+let lastHeartbeat = Date.now()
+
 // ===== 任务子进程管理 =====
 // 方案 A: 直接 spawn('node', ['dist/index.js'])，cwd=项目根目录
 // 跨平台、不依赖 npm/cmd 外壳、kill() 干净（脚本自带 SIGTERM/SIGINT handler 会正常清理退出）
@@ -1379,6 +1383,12 @@ const server = http.createServer((req, res) => {
         return sendJson(res, 200, readLogFile(null))
     }
 
+    // API: 心跳检测（前端每 3 秒请求，刷新 lastHeartbeat 维持服务存活）
+    if (pathname === '/api/heartbeat') {
+        lastHeartbeat = Date.now()
+        return sendJson(res, 200, { success: true, ts: lastHeartbeat })
+    }
+
     return sendJson(res, 404, { error: `未知接口: ${pathname}` })
 })
 
@@ -1400,4 +1410,13 @@ server.listen(PORT, () => {
     console.log(`账号文件: ${resolveAccountsPath()}`)
     console.log(`配置来源: ${resolveConfigPath()}`)
     console.log(`日志目录: ${LOGS_DIR}`)
+
+    // 心跳守护：每 3 秒检查一次，超过 8 秒未收到心跳则自动退出（网页已关闭）
+    setInterval(() => {
+        const elapsed = Date.now() - lastHeartbeat
+        if (elapsed > 8000) {
+            console.log(`[GUI] 超过 ${(elapsed / 1000).toFixed(0)} 秒未收到心跳（网页可能已关闭），自动退出服务`)
+            process.exit(0)
+        }
+    }, 3000).unref()
 })
