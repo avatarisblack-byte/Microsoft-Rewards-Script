@@ -381,9 +381,8 @@ function writeSummaryFile(summary) {
     }
 }
 
-// ===== 心跳检测（网页关闭自动退出） =====
-// 前端每 3 秒请求 /api/heartbeat 维持存活；超过 8 秒未收到心跳则视为网页已关闭，自动退出服务
-let lastHeartbeat = Date.now()
+// ===== 网页长连接保活（SSE） =====
+// 前端通过 EventSource 保持 /api/keepalive 长连接；连接断开即视为网页已关闭，进程自动退出
 
 // ===== 任务子进程管理 =====
 // 方案 A: 直接 spawn('node', ['dist/index.js'])，cwd=项目根目录
@@ -1383,10 +1382,23 @@ const server = http.createServer((req, res) => {
         return sendJson(res, 200, readLogFile(null))
     }
 
-    // API: 心跳检测（前端每 3 秒请求，刷新 lastHeartbeat 维持服务存活）
-    if (pathname === '/api/heartbeat') {
-        lastHeartbeat = Date.now()
-        return sendJson(res, 200, { success: true, ts: lastHeartbeat })
+    // API: 网页长连接保活（SSE）——前端 EventSource 保持此连接，断开即视为网页关闭
+    if (pathname === '/api/keepalive') {
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': '*'
+        })
+        // 初始帧：让 EventSource 立即确认连接建立成功
+        res.write(': connected\n\n')
+        // 监听前端断开连接（关闭页面 / 刷新 / 跳转）：立即退出进程
+        req.on('close', () => {
+            console.log('网页连接已断开，正在退出进程...')
+            process.exit(0)
+        })
+        // 注意：不主动调用 res.end()，保持长连接
+        return
     }
 
     return sendJson(res, 404, { error: `未知接口: ${pathname}` })
@@ -1410,13 +1422,4 @@ server.listen(PORT, () => {
     console.log(`账号文件: ${resolveAccountsPath()}`)
     console.log(`配置来源: ${resolveConfigPath()}`)
     console.log(`日志目录: ${LOGS_DIR}`)
-
-    // 心跳守护：每 3 秒检查一次，超过 8 秒未收到心跳则自动退出（网页已关闭）
-    setInterval(() => {
-        const elapsed = Date.now() - lastHeartbeat
-        if (elapsed > 8000) {
-            console.log(`[GUI] 超过 ${(elapsed / 1000).toFixed(0)} 秒未收到心跳（网页可能已关闭），自动退出服务`)
-            process.exit(0)
-        }
-    }, 3000).unref()
 })

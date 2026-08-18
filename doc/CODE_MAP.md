@@ -42,7 +42,7 @@
 | `/api/logs/import` | POST | JSON `{filename, dataBase64}` | 导入日志压缩包（Base64 → PowerShell 解压 → *.log 白名单 → 防路径穿越 → 同名 .bak 备份 → 复制到 logs/） |
 | `/api/logs/:date` | GET | YYYY-MM-DD | 返回指定日期日志解析结果 |
 | `/api/logs/summary` | GET | - | 返回最新日志聚合摘要 |
-| `/api/heartbeat` | GET | - | 心跳检测：刷新 lastHeartbeat 时间戳；服务端每 3 秒检查，超过 8 秒未收到心跳则自动退出（网页已关闭时清理进程）。（2026-08-17 新增） |
+| `/api/keepalive` | GET | - | SSE 长连接保活：设置 `text/event-stream` / `no-cache` / `keep-alive`，不主动 res.end()；req.on('close') 即打印日志并 process.exit(0)（页面关闭自动退出进程）。（2026-08-18 替代原 /api/heartbeat 短轮询） |
 | `--generate-summary` | CLI | - | `node gui/server.js --generate-summary` 生成 gui/summary.json |
 
 ### 关键设计决策
@@ -56,7 +56,7 @@
 - **前端图表**：Chart.js v4 CDN，Stacked 柱状图展示每日每账号收益。动画由 `js/animator.js` 统一提供：首次创建用 `chartAnimOptions`（x 方向 from 锚定到柱子最终 x 坐标 + y 的 from 回调从 y 轴 0 值像素位置竖向上生长，几何上杜绝"左上角斜飞"），30 秒自动刷新时用 `smoothUpdateChart`（更新前删除 y.from 回调）从当前显示值平滑过渡（不归零重飞）。**惰性创建**：Chart 仅在统计面板可见时才 `new Chart`（隐藏容器 0×0 布局会导致 scale 异常、动画起点错乱），导航切到 stats 且图表未创建时补建。（2026-08-17：app.js 接入 animator.js；HTML 引用 animations.css；修复斜飞与重飞 + 惰性创建）
 - **Home 总积分兜底与日志账号合并**：仪表盘"总积分"合并统计「已配置账号」（通过 status 关联日志）与「日志中有收益但未在 accounts.json 配置的账号」（logSummary 中排除已配置前缀的项），避免当前仅配置占位账号时总积分显示为 0；单账号余额优先 `latestBalance`（URL-REWARD 的 新余额=），缺失时用 ACCOUNT-END 的权威最终值 `finalPoints`（日志 `→ 新值:`）兜底。（2026-08-17）
 - **Stats 面板零收益过滤**：数据统计页不显示收益为零的账户——图表图例/堆叠柱仅收集 `points > 0` 的账户，累计收益列表仅渲染 `totalPoints > 0` 的账户（前端 renderStats() 过滤，不动后端数据源；2026-08-17）
-- **心跳检测**：前端页面加载后每 3 秒 fetch `/api/heartbeat`；`server.js` 记录 `lastHeartbeat`，用 `setInterval`（3 秒）检查，超过 8 秒未收到心跳视为网页已关闭 → 打印日志并 `process.exit(0)` 自动退出，避免静默启动的 Node 服务残留。（2026-08-17）
+- **网页关闭自动退出（SSE 长连接，2026-08-18 替代短轮询心跳）**：前端 `new EventSource('/api/keepalive')` 保持长连接；服务端设 `text/event-stream`/`no-cache`/`keep-alive`、不 res.end()、监听 req.on('close') → 连接断开即 process.exit(0)。SSE 不受浏览器后台标签页定时器节流影响，避免 "GUI 未关闭却被误杀"；前端加 beforeunload 确认框防误关。原 /api/heartbeat 与 lastHeartbeat 轮询已移除。
 - **端口配置**：GUI 默认端口改为 3001（原 3000 常与用户其他脚本冲突）。`server.js` 读取 `PORT` 环境变量（`process.env.PORT \|\| 3000` 作为兜底），`start-gui.bat` 中 `set PORT=3001` 统一控制，改 bat 末尾端口号即可整体换端口。（2026-08-17）
 - **前端响应式布局**：侧边栏 `aside` 固定 `flex-shrink-0`、内容区 `main` 固定 `min-w-0`（防止面板内容撑爆挤压侧边栏）；面板内横向排列容器统一使用 `flex-wrap` + 响应式 `grid md:` 断点（参照 accounts/settings 面板写法，2026-08-16 修复 90%/125% 缩放下 home/stats 面板跑版问题）。
 

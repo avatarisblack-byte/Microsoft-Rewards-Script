@@ -3,7 +3,7 @@ title Microsoft Rewards GUI Server (port 3001)
 cd /d "%~dp0"
 
 :: 端口配置：若 3000 被占用请修改此处（server.js 会读取 PORT 环境变量）
-set PORT=3001
+set PORT=3002
 
 if not exist "server.js" (
     echo [错误] 未找到 server.js，当前目录: %cd%

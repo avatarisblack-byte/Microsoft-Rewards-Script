@@ -1164,11 +1164,20 @@
             // 初始化时拉取任务状态（若服务端已有子进程在跑则显示运行中）
             pollTaskStatus();
 
-            // 心跳维持：每 3 秒向 /api/heartbeat 发请求，告知服务端网页仍在打开
-            // 若网页关闭，服务端超过 8 秒收不到心跳会自动退出进程
-            setInterval(() => {
-                fetch('/api/heartbeat').catch(() => {/* 服务退出后忽略失败 */});
-            }, 3000);
+            // 网页长连接保活：通过 EventSource 建立 SSE 长连接。
+            // 浏览器对该连接不断开（页面未关闭、仅后台休眠）则进程保持存活；
+            // 连接断开（页面真正关闭/刷新/跳转）时服务端立即退出进程。
+            // 相比定时 fetch 心跳，SSE 长连接不受后台标签页定时器节流影响。
+            const keepaliveSource = new EventSource('/api/keepalive');
+            keepaliveSource.onerror = () => {
+                // 服务端退出后连接错误属预期，忽略以免刷 console
+            };
+
+            // 关闭/刷新页面前弹出浏览器默认的离开确认框，防止误触导致后台进程退出
+            window.addEventListener('beforeunload', (event) => {
+                event.preventDefault();
+                event.returnValue = ''; // 触发浏览器默认的离开确认弹窗
+            });
 
             // 每 5 秒轮询任务状态（子进程日志实时更新）
             setInterval(pollTaskStatus, 5000);
