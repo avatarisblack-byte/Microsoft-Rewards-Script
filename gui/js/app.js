@@ -549,6 +549,109 @@
             }
         }
 
+        // ===== 一键导出全部本地数据（sessions + logs + accounts + config） =====
+        async function exportAllData() {
+            const btn = document.getElementById('data-export-btn');
+            const originalText = btn ? btn.innerText : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = '导出中...';
+            }
+
+            try {
+                const res = await fetch('/api/data/export');
+                if (!res.ok) {
+                    let msg = `HTTP ${res.status}`;
+                    try {
+                        const data = await res.json();
+                        if (data && data.error) msg = data.error;
+                    } catch {}
+                    throw new Error(msg);
+                }
+
+                // 从 Content-Disposition 解析文件名
+                const cd = res.headers.get('Content-Disposition') || '';
+                const m = cd.match(/filename="?([^"]+)"?/);
+                const filename = m ? m[1] : 'gui-data.zip';
+
+                // Blob 触发浏览器下载
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            } catch (error) {
+                alert(`❌ 导出失败: ${error.message || error}`);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = originalText;
+                }
+            }
+        }
+
+        // ===== 一键导入全部本地数据 zip =====
+        async function importAllData(fileInput) {
+            const file = fileInput && fileInput.files && fileInput.files[0];
+            // 重置 input，允许重复选择同一文件
+            if (fileInput) fileInput.value = '';
+            if (!file) return;
+
+            // 导入会覆盖当前数据，提示确认
+            if (!confirm('导入将覆盖当前账号/配置/会话/日志数据（原数据会自动备份为 .bak）。\n确定继续吗？')) {
+                return;
+            }
+
+            const btn = document.getElementById('data-import-btn');
+            const originalText = btn ? btn.innerText : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = '导入中...';
+            }
+
+            try {
+                // FileReader → Base64（去掉 data:...;base64, 前缀）
+                const dataBase64 = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const result = reader.result;
+                        if (typeof result === 'string') {
+                            resolve(result.split(',')[1]);
+                        } else {
+                            reject(new Error('文件读取失败'));
+                        }
+                    };
+                    reader.onerror = () => reject(new Error('文件读取失败'));
+                    reader.readAsDataURL(file);
+                });
+
+                const res = await fetch('/api/data/import', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: file.name, dataBase64 })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.error || `HTTP ${res.status}`);
+                }
+                const imp = data.imported || {};
+                alert(`✅ ${data.message}\n\nSession: ${imp.sessions || 0}\n日志: ${imp.logs || 0}\n账号: ${imp.accounts || 0}\n配置: ${imp.config || 0}`);
+                // 数据被覆盖，刷新面板
+                await loadData();
+            } catch (error) {
+                alert(`❌ 导入失败: ${error.message || error}`);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = originalText;
+                }
+            }
+        }
+
         // ===== 导出 Session 压缩包 =====
         async function exportSessions() {
             const btn = document.getElementById('session-export-btn');

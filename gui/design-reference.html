@@ -78,10 +78,21 @@
             <!-- 【面板 1：Home 标签页】 -->
             <!-- 外层结构与 panel-accounts 完全一致：content-panel space-y-6 + 顶部标题区 flex justify-between items-end -->
             <div id="panel-home" class="content-panel space-y-6">
-                <div class="flex flex-wrap justify-between items-end gap-3">
+                <div class="flex flex-wrap justify-between items-center min-h-[56px] gap-3">
                     <div class="min-w-0">
                         <h2 class="text-lg font-bold text-gray-800">仪表盘总览</h2>
                         <p class="text-sm text-gray-500">账户汇总与任务运行状态</p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button id="data-export-btn" onclick="exportAllData()" class="bg-gray-600 text-white px-5 py-2.5 rounded-lg font-semibold hover:bg-gray-700 flex items-center gap-2 shadow-sm transition-colors" title="导出全部本地数据（Session/日志/配置/账号）">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                            导出数据
+                        </button>
+                        <button id="data-import-btn" onclick="document.getElementById('data-zip-input').click()" class="bg-gray-600 text-white px-5 py-2.5 rounded-lg font-semibold hover:bg-gray-700 flex items-center gap-2 shadow-sm transition-colors" title="从备份 zip 恢复全部本地数据">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                            导入数据
+                        </button>
+                        <input id="data-zip-input" type="file" accept=".zip" class="hidden" onchange="importAllData(this)">
                     </div>
                 </div>
 
@@ -121,7 +132,7 @@
 
             <!-- 【面板 2：Accounts 标签页】 -->
             <div id="panel-accounts" class="content-panel space-y-6 hidden">
-                <div class="flex flex-wrap justify-between items-end gap-3">
+                <div class="flex flex-wrap justify-between items-center min-h-[56px] gap-3">
                     <div class="min-w-0">
                         <h2 class="text-lg font-bold text-gray-800">账户列表</h2>
                         <p class="text-sm text-gray-500">管理您的凭证与独立代理设置</p>
@@ -159,7 +170,7 @@
 
             <!-- 【面板 3：Stats 标签页】 -->
             <div id="panel-stats" class="content-panel space-y-6 hidden">
-                <div class="flex flex-wrap justify-between items-end gap-3">
+                <div class="flex flex-wrap justify-between items-center min-h-[56px] gap-3">
                     <div class="min-w-0">
                         <h2 class="text-lg font-bold text-gray-800">数据统计</h2>
                         <p class="text-sm text-gray-500">基于 logs/ 目录日志的积分统计</p>
