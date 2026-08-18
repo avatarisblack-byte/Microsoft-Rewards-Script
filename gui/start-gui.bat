@@ -1,26 +1,26 @@
 @echo off
-title Microsoft Rewards GUI Server (port 3001)
+title Microsoft Rewards GUI Server (port 3000)
 cd /d "%~dp0"
 
-:: 端口配置：若 3000 被占用请修改此处（server.js 会读取 PORT 环境变量）
-set PORT=3002
+:: Port config: edit here if port 3000 is in use (server.js reads the PORT env variable)
+set PORT=3000
 
 if not exist "server.js" (
-    echo [错误] 未找到 server.js，当前目录: %cd%
+    echo [ERROR] server.js not found. Current directory: %cd%
     pause
     exit /b 1
 )
 
 echo ================================================
-echo   正在启动 Microsoft Rewards Script 控制台...
-echo   端口: http://localhost:%PORT%
+echo   Starting Microsoft Rewards Script Console...
+echo   Port: http://localhost:%PORT%
 echo ================================================
 echo.
 
-:: 1. 异步唤起浏览器（3秒后自动打开 localhost:%PORT%）
+:: 1. Open the browser asynchronously (auto-open localhost:%PORT% after 3 seconds)
 start "" powershell -Command "Start-Sleep -Seconds 3; Start-Process 'http://localhost:%PORT%'"
 
-:: 2. 直接在当前窗口运行 Node 服务，日志直接在当前窗口输出
+:: 2. Run the Node server in the current window, logs print here
 node server.js
 
 pause

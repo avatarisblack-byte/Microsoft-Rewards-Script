@@ -16,9 +16,9 @@
 | `gui/lib/archive.js` | unzipToDir / zipDir / makeTmpRoot（零依赖压缩解压）。（2026-08-18 新增） |
 | `gui/lib/taskManager.js` | startTask / stopTask / getTaskStatus（任务子进程管理）。（2026-08-18 新增） |
 | `gui/lib/routes/` | 8 个路由模块（static/config/accounts/logs/sessions/data/tasks/system），统一签名 `(req,res,pathname,ctx)=>boolean`，由 server.js 在 ctx 注入依赖后按序分发。（2026-08-18 新增） |
-| `gui/start-gui.bat` | 一键启动脚本：`cd /d %~dp0` → `set PORT=3001`（可改）→ 校验 server.js → 3 秒后 PowerShell 开浏览器 → 当前窗口跑 `node server.js` |
+| `gui/start-gui.bat` | 一键启动脚本：**纯 ASCII（无中文，避免任何代码页乱码）**：`cd /d %~dp0` → `set PORT=3000`（可改）→ 校验 server.js → 3 秒后 PowerShell 开浏览器 → 当前窗口跑 `node server.js` |
 | `gui/start-gui-silent.vbs` | 静默启动（WScript.Shell 隐藏窗口跑 start-gui.bat）。（2026-08-17 新增） |
-| `gui/stop-gui.bat` | 按端口（默认 3001）查 PID 并 taskkill /f 停止，避免误杀其他 Node 脚本。（2026-08-17 新增） |
+| `gui/stop-gui.bat` | 按端口（默认 3000）查 PID 并 taskkill /f 停止，避免误杀其他 Node 脚本。（2026-08-17 新增） |
 | `gui/README.md` | GUI 专属用户文档。（2026-08-17 新增） |
 | `gui/css/main.css` | 公共样式（卡片阴影/滚动条/图表占位） |
 | `gui/css/animations.css` | 图表动画辅助样式 |
@@ -66,9 +66,9 @@
 - **Home 总积分兜底与日志账号合并**：latestBalance 优先、finalPoints 兜底；合并"已配置账号 + 日志有收益未配置账号"。（2026-08-17）
 - **Stats 零收益过滤**：图例/堆叠柱仅收集 points>0，累计列表仅 totalPoints>0。（2026-08-17）
 - **一键导入导出本地数据（2026-08-18）**：仪表盘标题区"导出数据/导入数据"按钮，打包/恢复 sessions+logs+accounts.json+config.json；白名单+防穿越+.bak+回滚。
-- **模块化重构（2026-08-18）**：`server.js` 原约 1600 行拆为 `gui/lib/`（7 基础模块）+ `gui/lib/routes/`（8 路由模块），入口精简为组装 ctx+顺序分发。路由签名 `(req,res,pathname,ctx)=>boolean`（true=已处理），ctx 注入 config/http/validator/logger/summary/archive/taskManager 规避循环 require。拆分按依赖递增（config→httpUtils/validator→logger→summary→archive→taskManager→routes→入口）。已验证：`node --check` 通过、`--generate-summary` CLI 正常、前台 `PORT=3001` 下 `/`、`/api/stats`、`/api/accounts` 均 200（3000 被用户其他脚本占用，必须用 3001）。
+- **模块化重构（2026-08-18）**：`server.js` 原约 1600 行拆为 `gui/lib/`（7 基础模块）+ `gui/lib/routes/`（8 路由模块），入口精简为组装 ctx+顺序分发。路由签名 `(req,res,pathname,ctx)=>boolean`（true=已处理），ctx 注入 config/http/validator/logger/summary/archive/taskManager 规避循环 require。拆分按依赖递增（config→httpUtils/validator→logger→summary→archive→taskManager→routes→入口）。
 - **网页关闭自动退出（SSE 长连接，2026-08-18）**：前端 EventSource('/api/keepalive')；服务端 text/event-stream+no-cache+keep-alive、不 res.end()、req.on('close')→process.exit(0)；不受浏览器后台标签页节流影响；前端 beforeunload 防误关。原 /api/heartbeat 短轮询已移除。
-- **端口配置**：默认端口 3001（3000 常与用户其他脚本冲突）。start-gui.bat 中 `set PORT=3001` 统一控制。
+- **端口配置**：默认端口 3000。start-gui.bat 中 `set PORT=3000` 统一控制（stop-gui.bat 的 `PORT_TO_KILL` 需同步）。
 - **前端响应式**：aside flex-shrink-0 + main min-w-0，防面板撑爆挤瘪侧边栏。（2026-08-16）
 
 ## 原有模块（参考）
@@ -84,4 +84,7 @@
 
 | 日期 | 内容 |
 |------|------|
+| 2026-08-19 | `gui/design-reference.html` 仪表盘标题区（"仪表盘总览 / 账户汇总与任务运行状态"）距顶部常驻栏距离与其他页面统一：根因是 `#contentPanels` 的 `space-y-8` 仅对非首个面板生效，导致仪表盘（首个 `panel-home`）少了 32px；修复为给 `panel-home` 加 `mt-8`，与其他页面统一为 64px |
+| 2026-08-19 | `gui/design-reference.html` 导入/导出图标方向统一：**导出朝上（`m-4-8l-4-4m0 0L8 8m4-4v12`）、导入朝下（`m-4-4l-4 4m0 0L8 12m4 4V4`）**。涉及仪表盘数据、Session、日志三组六个按钮 |
+| 2026-08-19 | `start-gui.bat` 修复：曾试 `chcp 65001`，但代码页切换期缓冲错位仍会啃掉后续中文行（报 `'澶勶紙server.js'`），最终**改为纯 ASCII**（英文注释/提示），任何代码页解析一致，从根上消除乱码；端口统一为 3000（start-gui / stop-gui / 文档同步）。`start-gui-silent.vbs` 注释改纯 ASCII，与编码无关 |
 | 2026-08-19 | `.gitignore` 调整：移除 `.github/` 规则（保留 CI 工作流追踪）；清理重复条目 `accounts.dev.json`、`.DS_Store`；`.vscode/launch.json` 移出 git 追踪（本地文件保留，`git rm --cached`）；`skills-lock.json` 加入追踪 |

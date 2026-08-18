@@ -47,13 +47,13 @@
 双击 gui/start-gui-silent.vbs
 ```
 
-VBS 会以隐藏窗口形式调用 `start-gui.bat`，浏览器 3 秒后自动打开 **http://localhost:3001**。
+VBS 会以隐藏窗口形式调用 `start-gui.bat`，浏览器 3 秒后自动打开 **http://localhost:3000**。
 
 > ⚠️ 静默模式隐藏了窗口，无法用 Ctrl+C 停止服务；请使用 `stop-gui.bat` 或面板右上角"关闭服务"。
 
 > 启动日志中会显示：
 > ```
-> Microsoft-Rewards-Script 控制台已启动: http://localhost:3001
+> Microsoft-Rewards-Script 控制台已启动: http://localhost:3000
 > 账号文件: ...\dist\accounts.json
 > 配置来源: ...\src\config.example.json
 > 日志目录: ...\logs
@@ -61,18 +61,18 @@ VBS 会以隐藏窗口形式调用 `start-gui.bat`，浏览器 3 秒后自动打
 
 ### 2. 更换端口
 
-默认端口为 `3001`，若被占用，编辑 `gui/start-gui.bat` 中的一行：
+默认端口为 `3000`，若被占用，编辑 `gui/start-gui.bat` 中的一行：
 
 ```bat
-set PORT=3001
+set PORT=3000
 ```
 
-改成其他端口（如 `3002`）即可，浏览器打开地址会自动跟随。
+改成其他端口即可，浏览器打开地址会自动跟随。
 
 ### 3. 停止服务
 
 - 界面右上角点 **「关闭服务」**，服务端延迟 500ms 退出
-- 双击 **`gui/stop-gui.bat`**：按端口（默认 3001）精准查找 PID 并强制结束，**不会误杀你其他正在运行的 Node 脚本**
+- 双击 **`gui/stop-gui.bat`**：按端口（默认 3000）精准查找 PID 并强制结束，**不会误杀你其他正在运行的 Node 脚本**
 - 或直接关闭 `start-gui.bat` 的命令行窗口（仅普通启动方式适用）
 
 ---
@@ -151,14 +151,14 @@ set PORT=3001
 <summary><b>浏览器没自动打开？</b></summary>
 
 `start-gui.bat` 会延迟 3 秒用 PowerShell 打开浏览器。若未弹出：
-手动访问 `http://localhost:3001`，确认命令行窗口输出的端口号一致。
+手动访问 `http://localhost:3000`，确认命令行窗口输出的端口号一致。
 
 </details>
 
 <details>
 <summary><b>端口被占用 / 改不了端口？</b></summary>
 
-编辑 `gui/start-gui.bat` 中的 `set PORT=3001` 改成其他端口（如 `3002`）保存即可。不要直接改 `server.js`（不支持，且会被 bat 覆盖确认）。
+编辑 `gui/start-gui.bat` 中的 `set PORT=3000` 改成其他端口保存即可。不要直接改 `server.js`（不支持，且会被 bat 覆盖确认）。
 
 </details>
 
@@ -182,7 +182,7 @@ set PORT=3001
 <details>
 <summary><b>杀毒 / 防火墙提示？</b></summary>
 
-GUI 是本机 Node 服务，仅监听 127.0.0.1:3001，不对外网开放。若防火墙询问，允许 Node 在本机访问即可。
+GUI 是本机 Node 服务，仅监听 127.0.0.1:3000，不对外网开放。若防火墙询问，允许 Node 在本机访问即可。
 
 </details>
 
