@@ -398,7 +398,7 @@
                             datasets: datasets
                         },
                         options: {
-                            ...(window.chartAnimOptions || {}),
+                            animations: false,
                             responsive: true,
                             maintainAspectRatio: false,
                             interaction: { mode: 'index', intersect: false },
@@ -454,10 +454,9 @@
         // ===== 导出日志压缩包 =====
         async function exportLogs() {
             const btn = document.getElementById('logs-export-btn');
-            const originalText = btn ? btn.innerText : '';
             if (btn) {
                 btn.disabled = true;
-                btn.innerText = '导出中...';
+                btn.classList.add('opacity-50');
             }
 
             try {
@@ -491,7 +490,7 @@
             } finally {
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerText = originalText;
+                    btn.classList.remove('opacity-50');
                 }
             }
         }
@@ -504,10 +503,9 @@
             if (!file) return;
 
             const btn = document.getElementById('logs-import-btn');
-            const originalText = btn ? btn.innerText : '';
             if (btn) {
                 btn.disabled = true;
-                btn.innerText = '导入中...';
+                btn.classList.add('opacity-50');
             }
 
             try {
@@ -544,7 +542,7 @@
             } finally {
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerText = originalText;
+                    btn.classList.remove('opacity-50');
                 }
             }
         }
@@ -552,10 +550,9 @@
         // ===== 一键导出全部本地数据（sessions + logs + accounts + config） =====
         async function exportAllData() {
             const btn = document.getElementById('data-export-btn');
-            const originalText = btn ? btn.innerText : '';
             if (btn) {
                 btn.disabled = true;
-                btn.innerText = '导出中...';
+                btn.classList.add('opacity-50');
             }
 
             try {
@@ -589,7 +586,7 @@
             } finally {
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerText = originalText;
+                    btn.classList.remove('opacity-50');
                 }
             }
         }
@@ -607,10 +604,9 @@
             }
 
             const btn = document.getElementById('data-import-btn');
-            const originalText = btn ? btn.innerText : '';
             if (btn) {
                 btn.disabled = true;
-                btn.innerText = '导入中...';
+                btn.classList.add('opacity-50');
             }
 
             try {
@@ -647,7 +643,7 @@
             } finally {
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerText = originalText;
+                    btn.classList.remove('opacity-50');
                 }
             }
         }
@@ -655,10 +651,9 @@
         // ===== 导出 Session 压缩包 =====
         async function exportSessions() {
             const btn = document.getElementById('session-export-btn');
-            const originalText = btn ? btn.innerText : '';
             if (btn) {
                 btn.disabled = true;
-                btn.innerText = '导出中...';
+                btn.classList.add('opacity-50');
             }
 
             try {
@@ -692,7 +687,7 @@
             } finally {
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerText = originalText;
+                    btn.classList.remove('opacity-50');
                 }
             }
         }
@@ -739,10 +734,9 @@
             if (!file) return;
 
             const btn = document.getElementById('session-import-btn');
-            const originalText = btn ? btn.innerText : '';
             if (btn) {
                 btn.disabled = true;
-                btn.innerText = '导入中...';
+                btn.classList.add('opacity-50');
             }
 
             try {
@@ -777,7 +771,7 @@
             } finally {
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerText = originalText;
+                    btn.classList.remove('opacity-50');
                 }
             }
         }

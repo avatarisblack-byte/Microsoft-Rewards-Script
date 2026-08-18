@@ -13,13 +13,10 @@ accounts.main.json
 src/browser/sessions/
 *.log
 .vscode/
-.github/
 diagnostic/
 report/
 accounts.json
 notes
-accounts.dev.json
-.DS_Store
 .playwright-chromium-installed
 QWEN.md
 bun.lock

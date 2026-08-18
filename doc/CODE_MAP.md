@@ -62,7 +62,7 @@
 - **日志关联**：账号卡片状态经邮箱前缀 `email.split('@')[0]` 匹配日志 `[账户]`。
 - **任务启动**：`spawn('node',[dist/index.js])`，cwd=项目根目录，开发模式降级 ts-node。
 - **统计防重复**：优先 ACCOUNT-END 权威总计；无则累加 INFO 级活动积分（跳过 DEBUG 差额行）。
-- **前端图表**：Chart.js v4 堆叠柱。动画由 animator.js 统一：x.form 锚定 + y.from 回 0 值 + smoothUpdateChart 删除 y.from；惰性创建（面板可见才 new Chart）。（2026-08-17）
+- **前端图表**：Chart.js v4 堆叠柱。Stats 柱状图已禁用动画（app.js 中 animations: false，2026-08-19），animator.js 保留供参考；惰性创建（面板可见才 new Chart）。（2026-08-17）
 - **Home 总积分兜底与日志账号合并**：latestBalance 优先、finalPoints 兜底；合并"已配置账号 + 日志有收益未配置账号"。（2026-08-17）
 - **Stats 零收益过滤**：图例/堆叠柱仅收集 points>0，累计列表仅 totalPoints>0。（2026-08-17）
 - **一键导入导出本地数据（2026-08-18）**：仪表盘标题区"导出数据/导入数据"按钮，打包/恢复 sessions+logs+accounts.json+config.json；白名单+防穿越+.bak+回滚。
@@ -79,3 +79,9 @@
 | `src/util/Load.ts` | 加载 accounts.json / config.json |
 | `src/util/Validator.ts` | Zod 校验 accounts 与 config 结构 |
 | `src/logging/Logger.ts` | 日志写入 `logs/YYYY-MM-DD.log` |
+
+## 变更记录
+
+| 日期 | 内容 |
+|------|------|
+| 2026-08-19 | `.gitignore` 调整：移除 `.github/` 规则（保留 CI 工作流追踪）；清理重复条目 `accounts.dev.json`、`.DS_Store`；`.vscode/launch.json` 移出 git 追踪（本地文件保留，`git rm --cached`）；`skills-lock.json` 加入追踪 |
