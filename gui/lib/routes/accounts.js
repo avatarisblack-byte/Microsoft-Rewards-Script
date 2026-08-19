@@ -45,8 +45,7 @@ function handleAccounts(req, res, pathname, ctx) {
     if (pathname === '/api/accounts' && req.method === 'GET') {
         const accounts = config.readJson(config.resolveAccountsPath())
         if (!accounts) { http.sendJson(res, 500, { error: '无法读取 accounts.json' }); return true }
-        const file = ctx.logger.readLogFile(null)
-        const logSummary = file && file.entries ? ctx.summary.summarizeLogs(file.entries) : []
+        const logSummary = ctx.summary.summarizeAllLogs()
         const logMap = {}
         for (const s of logSummary) logMap[s.account] = s
         const enriched = accounts.map(a => ({

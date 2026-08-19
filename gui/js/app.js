@@ -1,6 +1,7 @@
         // ===== 全局状态 =====
         let accountsCache = { accounts: [], logSummary: [] };
         let configCache = null;
+        let statsCache = null; // /api/stats 缓存（今日收益/总收益/每日趋势），30s 轮询刷新
 
         // ===== 工具函数 =====
         function emailUser(email) {
@@ -139,12 +140,15 @@
         // ===== 数据加载 =====
         async function loadData() {
             try {
-                const [accData, configData] = await Promise.all([
+                // 并行拉取账号、配置与统计（统计用于首页"今日收益/总收益"实时卡片）
+                const results = await Promise.allSettled([
                     fetchJson('/api/accounts'),
-                    fetchJson('/api/config')
+                    fetchJson('/api/config'),
+                    fetchJson('/api/stats')
                 ]);
-                accountsCache = accData;
-                configCache = configData;
+                accountsCache = results[0].status === 'fulfilled' ? results[0].value : accountsCache;
+                configCache = results[1].status === 'fulfilled' ? results[1].value : configCache;
+                if (results[2].status === 'fulfilled') statsCache = results[2].value;
                 renderAll();
             } catch (error) {
                 console.error('加载数据失败:', error);
@@ -165,33 +169,21 @@
             totalAccountsEl.innerText = accounts.length;
             totalSubEl.innerText = `已配置 ${accounts.length} 个账号`;
 
-            // 汇总积分：合并「已配置账号」与「日志中实际有收益的账号」
-            // 已配置账号：通过 status 关联日志
-            const configuredTotals = accounts.map(a => {
-                const log = a.status && a.status.entries ? a.status : null;
-                if (!log) return { collected: 0, balance: 0 };
-                const collected = log.collectedPoints || 0;
-                const balance = (typeof log.latestBalance === 'number' && log.latestBalance > 0)
-                    ? log.latestBalance
-                    : (log.finalPoints || 0);
-                return { collected, balance };
-            });
-            // 日志账号：logSummary 中未在 accounts.json 里但确有收益的账号
-            const configuredNames = new Set(accounts.map(a => emailUser(a.email)));
-            const logAccountTotals = (accountsCache.logSummary || [])
-                .filter(s => s && !configuredNames.has(s.account))
-                .map(s => ({
-                    collected: s.collectedPoints || 0,
-                    balance: (typeof s.latestBalance === 'number' && s.latestBalance > 0)
-                        ? s.latestBalance
-                        : (s.finalPoints || 0)
-                }));
+            // 顶部收益卡：直接从 /api/stats 缓存取「今日收益 / 总收益」（脚本执行带来的收益，非账户余额）
+            const todayTotal = (statsCache && statsCache.todayTotal) || 0;
+            const grandTotal = (statsCache && statsCache.grandTotal) || 0;
+            totalCollectedEl.innerText = todayTotal;
+            totalBalanceEl.innerText = grandTotal;
+            balanceSubEl.innerText = '今日收益 / 累计总收益（基于日志解析，含未配置账号）';
 
-            const totalCollected = configuredTotals.concat(logAccountTotals).reduce((sum, t) => sum + t.collected, 0);
-            const totalBalance = configuredTotals.concat(logAccountTotals).reduce((sum, t) => sum + t.balance, 0);
-            totalCollectedEl.innerText = totalCollected;
-            totalBalanceEl.innerText = totalBalance;
-            balanceSubEl.innerText = '基于日志解析（含未配置账号）';
+            // 今日各账号收益映射（用于账号卡片"今日收益"，取当日累计收益而非最近一次运行）
+            const todayAccountsMap = {};
+            const nowD = new Date();
+            const todayKey = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}-${String(nowD.getDate()).padStart(2, '0')}`;
+            const todayEntry = (statsCache && statsCache.daily || []).find(d => d.date === todayKey);
+            if (todayEntry) {
+                (todayEntry.accounts || []).forEach(a => { todayAccountsMap[a.account] = a.points; });
+            }
 
             if (accounts.length === 0) {
                 cards.innerHTML = `
@@ -207,7 +199,8 @@
                 const isRunning = log && log.lastEvent === 'ACCOUNT-START' && !log.collectedPoints;
                 const statusDot = isRunning ? 'bg-green-500' : 'bg-gray-300';
                 const statusText = isRunning ? '运行中' : (log ? '已完成' : '空闲');
-                const collected = log && log.collectedPoints ? `+${log.collectedPoints}` : (log ? '--' : '--');
+                const todayPts = todayAccountsMap[emailUser(acc.email)] || 0;
+                const collected = todayPts > 0 ? `+${todayPts}` : '--';
                 const duration = log ? formatDuration(log.duration) : '--';
                 const latestMsg = log ? log.lastMessage : '暂无运行记录';
 
@@ -264,7 +257,7 @@
                 const level = log ? log.lastLevel : null;
                 const statusBadge = log
                     ? `<span class="text-[11px] px-2 py-0.5 rounded-md font-medium border border-gray-200 ${getLevelColor(level)}">最近: ${escapeHtml(log.lastEvent || '')}</span>`
-                    : '<span class="text-[11px] px-2 py-0.5 bg-gray-100 text-gray-400 rounded-md font-medium border border-gray-200">无运行记录</span>';
+                    : '<span class="text-[11px] px-2 py-0.5 bg-gray-100 text-gray-400 rounded-md font-medium border border-gray-200">暂无运行记录</span>';
 
                 return `
                 <div class="bg-white p-5 rounded-2xl border border-gray-100 card-shadow flex items-center justify-between gap-4 group">
@@ -280,15 +273,15 @@
                                 ${statusBadge}
                             </div>
                             <p class="text-xs text-gray-400 mt-1.5 truncate max-w-xl">
-                                ${log ? escapeHtml(log.lastMessage || '') : '该账户暂无日志记录，启动任务后自动显示运行状态'}
+                                ${log ? escapeHtml(log.lastMessage || '') : '暂无运行记录，启动任务后自动显示状态'}
                             </p>
                         </div>
                     </div>
                     <div class="flex gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onclick="openAccountSettings('${escapeHtml(acc.email)}')" class="p-2.5 text-blue-600 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors" title="详细设置">
+                        <button onclick="openAccountSettings('${escapeHtml(acc.email)}')" class="btn-icon btn-icon-primary" title="详细设置">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                         </button>
-                        <button onclick="deleteAccount('${escapeHtml(acc.email)}')" class="p-2.5 text-red-600 bg-red-50 rounded-xl hover:bg-red-100 transition-colors" title="删除">
+                        <button onclick="deleteAccount('${escapeHtml(acc.email)}')" class="btn-icon btn-icon-danger" title="删除">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                         </button>
                     </div>
@@ -306,21 +299,25 @@
             // 安全兜底（元素不存在时跳过）
             if (!chartCtx && !barsEl) return;
 
-            let statsData = null;
-            try {
-                statsData = await fetchJson('/api/stats');
-            } catch (e) {
-                console.error('加载统计失败:', e);
-                if (document.getElementById('stats-stats-info')) {
-                    document.getElementById('stats-stats-info').innerText = '加载失败，请确认已运行 node gui/server.js';
+            // 优先使用 loadData 缓存的 statsCache（每 30s 轮询刷新），缺失时（如首次进入统计页）再单独拉取
+            let statsData = statsCache;
+            if (!statsData) {
+                try {
+                    statsData = await fetchJson('/api/stats');
+                } catch (e) {
+                    console.error('加载统计失败:', e);
+                    if (document.getElementById('stats-stats-info')) {
+                        document.getElementById('stats-stats-info').innerText = '加载失败，请确认已运行 node gui/server.js';
+                    }
+                    return;
                 }
-                return;
             }
 
             // 顶部三张摘要卡
             const grandTotal = statsData.grandTotal || 0;
             const dailyArr = statsData.daily || [];
-            const todayPoints = dailyArr.length > 0 ? dailyArr[dailyArr.length - 1].total : 0;
+            // 今日收益优先用后端 todayTotal（本地时区、多账号多运行累计），缺失时回退 daily 最后一天
+            const todayPoints = statsData.todayTotal || (dailyArr.length > 0 ? dailyArr[dailyArr.length - 1].total : 0);
             const activeDays = dailyArr.length;
 
             if (document.getElementById('stats-grand-total')) {
@@ -846,89 +843,127 @@
             set('ro-webhook', JSON.stringify(cfg.webhook || {}));
         }
 
-        // ===== 保存全局配置 =====
-        async function saveConfig() {
-            const get = id => {
-                const el = document.getElementById(id);
-                return el ? el.value : undefined;
-            };
-            const getCheck = id => {
-                const el = document.getElementById(id);
-                return el ? el.checked : undefined;
-            };
+        // ===== 全局配置即时保存 =====
+        // 字段映射表：控件 id → config 嵌套路径（用于增量提交，后端为合并写回）
+        const CONFIG_FIELD_MAP = {
+            'cfg-baseURL': ['baseURL'],
+            'cfg-globalTimeout': ['globalTimeout'],
+            'cfg-headless': ['headless'],
+            'cfg-ensureStreakProtection': ['ensureStreakProtection'],
+            'cfg-errorDiagnostics': ['errorDiagnostics'],
+            'cfg-debugLogs': ['debugLogs'],
+            'cfg-searchOnBingLocalQueries': ['searchOnBingLocalQueries'],
+            'cfg-proxy-queryEngine': ['proxy', 'queryEngine'],
+            'cfg-consoleLogFilter-enabled': ['consoleLogFilter', 'enabled'],
+            'cfg-workers-doDailySet': ['workers', 'doDailySet'],
+            'cfg-workers-doClaimBonusPoints': ['workers', 'doClaimBonusPoints'],
+            'cfg-workers-doSpecialPromotions': ['workers', 'doSpecialPromotions'],
+            'cfg-workers-doMorePromotions': ['workers', 'doMorePromotions'],
+            'cfg-workers-doPunchCards': ['workers', 'doPunchCards'],
+            'cfg-workers-doAppPromotions': ['workers', 'doAppPromotions'],
+            'cfg-workers-doDesktopSearch': ['workers', 'doDesktopSearch'],
+            'cfg-workers-doMobileSearch': ['workers', 'doMobileSearch'],
+            'cfg-workers-doDailyCheckIn': ['workers', 'doDailyCheckIn'],
+            'cfg-workers-doReadToEarn': ['workers', 'doReadToEarn'],
+            'cfg-scrollRandomResults': ['searchSettings', 'scrollRandomResults'],
+            'cfg-clickRandomResults': ['searchSettings', 'clickRandomResults'],
+            'cfg-searchResultVisitTime': ['searchSettings', 'searchResultVisitTime'],
+            'cfg-chinaApi-appkey': ['searchSettings', 'chinaApi', 'appkey'],
+            'cfg-searchDelayMin': ['searchSettings', 'searchDelay', 'min'],
+            'cfg-searchDelayMax': ['searchSettings', 'searchDelay', 'max'],
+            'cfg-readDelayMin': ['searchSettings', 'readDelay', 'min'],
+            'cfg-readDelayMax': ['searchSettings', 'readDelay', 'max']
+        };
 
-            const payload = {
-                baseURL: get('cfg-baseURL'),
-                globalTimeout: get('cfg-globalTimeout'),
-                headless: getCheck('cfg-headless'),
-                ensureStreakProtection: getCheck('cfg-ensureStreakProtection'),
-                errorDiagnostics: getCheck('cfg-errorDiagnostics'),
-                debugLogs: getCheck('cfg-debugLogs'),
-                searchOnBingLocalQueries: getCheck('cfg-searchOnBingLocalQueries'),
-                proxy: {
-                    queryEngine: getCheck('cfg-proxy-queryEngine')
-                },
-                consoleLogFilter: {
-                    enabled: getCheck('cfg-consoleLogFilter-enabled')
-                },
-                workers: {
-                    doDailySet: getCheck('cfg-workers-doDailySet'),
-                    doClaimBonusPoints: getCheck('cfg-workers-doClaimBonusPoints'),
-                    doSpecialPromotions: getCheck('cfg-workers-doSpecialPromotions'),
-                    doMorePromotions: getCheck('cfg-workers-doMorePromotions'),
-                    doPunchCards: getCheck('cfg-workers-doPunchCards'),
-                    doAppPromotions: getCheck('cfg-workers-doAppPromotions'),
-                    doDesktopSearch: getCheck('cfg-workers-doDesktopSearch'),
-                    doMobileSearch: getCheck('cfg-workers-doMobileSearch'),
-                    doDailyCheckIn: getCheck('cfg-workers-doDailyCheckIn'),
-                    doReadToEarn: getCheck('cfg-workers-doReadToEarn')
-                },
-                searchSettings: {
-                    scrollRandomResults: getCheck('cfg-scrollRandomResults'),
-                    clickRandomResults: getCheck('cfg-clickRandomResults'),
-                    searchResultVisitTime: get('cfg-searchResultVisitTime'),
-                    chinaApi: {
-                        appkey: get('cfg-chinaApi-appkey') || ''
-                    },
-                    searchDelay: {
-                        min: get('cfg-searchDelayMin'),
-                        max: get('cfg-searchDelayMax')
-                    },
-                    readDelay: {
-                        min: get('cfg-readDelayMin'),
-                        max: get('cfg-readDelayMax')
+        function debounce(fn, ms) {
+            let timer = null;
+            return function (...args) {
+                clearTimeout(timer);
+                timer = setTimeout(() => fn.apply(this, args), ms);
+            };
+        }
+
+        // 串行保存链：快速连续修改时按顺序写盘，避免并发 PUT 乱序
+        let configSaveChain = Promise.resolve();
+
+        // 右上角保存状态提示（短暂显示后消失）
+        let configSaveStatusTimer = null;
+        function setConfigSaveStatus(text, isError) {
+            const el = document.getElementById('config-save-status');
+            if (!el) return;
+            el.textContent = text;
+            el.classList.toggle('text-green-600', !isError);
+            el.classList.toggle('text-red-600', isError);
+            clearTimeout(configSaveStatusTimer);
+            configSaveStatusTimer = setTimeout(() => { el.textContent = ''; }, 2500);
+        }
+
+        // 静默保存：增量提交单个字段，成功后用后端合并结果更新 configCache（不重渲染表单，避免打断输入）
+        function saveConfigSilent(payload) {
+            configSaveChain = configSaveChain.then(async () => {
+                try {
+                    const res = await fetch('/api/config', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                        throw new Error(data.error || `HTTP ${res.status}`);
                     }
+                    // 更新缓存，30 秒自动重渲染时回显刚保存的值，不会被旧值覆盖
+                    if (data.config) configCache = data.config;
+                    setConfigSaveStatus('✓ 已自动保存', false);
+                } catch (error) {
+                    console.error('配置自动保存失败:', error);
+                    setConfigSaveStatus('✗ 保存失败', true);
                 }
-            };
+            });
+            return configSaveChain;
+        }
 
-            const btn = document.querySelector('#panel-settings .bg-blue-600');
-            const originalText = btn ? btn.innerText : '';
-            if (btn) {
-                btn.disabled = true;
-                btn.innerText = '保存中...';
+        // 从控件当前值构建增量 payload：{ searchSettings: { searchDelay: { min: '5min' } } }
+        function buildIncrementalPayload(id) {
+            const fieldPath = CONFIG_FIELD_MAP[id];
+            if (!fieldPath) return null;
+            const el = document.getElementById(id);
+            if (!el) return null;
+            const value = el.type === 'checkbox' ? el.checked : el.value;
+            const payload = {};
+            let cursor = payload;
+            for (let i = 0; i < fieldPath.length - 1; i++) {
+                cursor[fieldPath[i]] = {};
+                cursor = cursor[fieldPath[i]];
             }
+            cursor[fieldPath[fieldPath.length - 1]] = value;
+            return payload;
+        }
 
-            try {
-                const res = await fetch('/api/config', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+        // 绑定自动保存事件：checkbox 立即保存；text 输入 500ms 防抖 + 失焦兜底
+        function bindAutoSaveSettings() {
+            const panel = document.getElementById('panel-settings');
+            if (!panel) return;
+
+            panel.querySelectorAll('input[type="checkbox"][id^="cfg-"]').forEach(input => {
+                input.addEventListener('change', () => {
+                    const payload = buildIncrementalPayload(input.id);
+                    if (payload) saveConfigSilent(payload);
                 });
-                const data = await res.json();
-                if (!res.ok) {
-                    throw new Error(data.error || `HTTP ${res.status}`);
-                }
-                alert(`✅ ${data.message}\n备份文件: ${data.backup || 'N/A'}`);
-                // 刷新 configCache 回显
-                await loadData();
-            } catch (error) {
-                alert(`❌ 保存失败: ${error.message || error}`);
-            } finally {
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerText = originalText;
-                }
-            }
+            });
+
+            panel.querySelectorAll('input:not([type="checkbox"])[id^="cfg-"]').forEach(input => {
+                // 跳过只读字段（cfg-baseURL 为高风险，锁定）
+                if (input.readOnly) return;
+                const debouncedSave = debounce(() => {
+                    const payload = buildIncrementalPayload(input.id);
+                    if (payload) saveConfigSilent(payload);
+                }, 500);
+                input.addEventListener('input', debouncedSave);
+                input.addEventListener('change', () => {
+                    const payload = buildIncrementalPayload(input.id);
+                    if (payload) saveConfigSilent(payload);
+                });
+            });
         }
 
         // ===== 打开配置文件 =====
@@ -963,7 +998,7 @@
                 return;
             }
 
-            const btn = document.querySelector('#panel-settings .bg-red-600');
+            const btn = document.querySelector('#panel-settings .btn-danger-ghost');
             const originalText = btn ? btn.innerText : '';
             if (btn) {
                 btn.disabled = true;
@@ -1044,7 +1079,7 @@
                 return;
             }
 
-            const btn = document.querySelector('#modal-add-account .bg-blue-600');
+            const btn = document.querySelector('#modal-add-account .btn-primary');
             const originalText = btn ? btn.innerText : '';
             if (btn) {
                 btn.disabled = true;
@@ -1185,7 +1220,7 @@
             };
 
             // 保存按钮状态反馈
-            const saveBtn = document.querySelector('#modal-account-settings .bg-blue-600');
+            const saveBtn = document.querySelector('#modal-account-settings .btn-primary');
             const originalText = saveBtn.innerText;
             saveBtn.disabled = true;
             saveBtn.innerText = '保存中...';
@@ -1257,6 +1292,9 @@
 
             // 加载真实数据
             loadData();
+
+            // 绑定全局配置即时保存（checkbox 立即保存 + text 防抖保存）
+            bindAutoSaveSettings();
 
             // 初始化时拉取任务状态（若服务端已有子进程在跑则显示运行中）
             pollTaskStatus();

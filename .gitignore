@@ -23,9 +23,11 @@ bun.lock
 logs/
 .stfolder/
 .env
-Microsoft-Rewards-Script.rar
+*.rar
 /.omo
-/.agents
+scripts/mac/mac的运行脚本
+更新同步原项目.txt
+test/data/
 
 # ===== Python 缓存 =====
 __pycache__/
