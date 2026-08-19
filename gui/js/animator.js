@@ -3,6 +3,14 @@
 //  1. 提供图表动画配置：首次渲染时柱子从坐标轴 0 竖直升起到最新值（禁 x 横向动画，避免"左上角斜飞"）
 //  2. 提供平滑更新封装：数据刷新时从上次显示值过渡到最新值（不归零重飞）
 // 供 js/app.js 的 renderStats() 引用。
+//
+// 时长收敛说明（emil-design-eng / review-animations）：
+//  - UI 动画预算 <300ms，图表属偶尔查看的数据展示，取 400ms 上限；
+//    原 600ms 首次生长偏拖，且 Chart.js update() 默认 1000ms 更慢（30s 轮询刷新时明显迟钝）。
+//  - prefers-reduced-motion 下动画时长为 0（数据仍即时更新），保留 opacity/颜色反馈、去掉位移生长。
+
+// 尊重系统"减少动态"偏好
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // 首次创建 Chart 实例时的动画选项：
 // - animations.x.from → x 方向锚定到柱子最终位置（即便 x 动画执行，柱子也不会横移）
@@ -20,7 +28,7 @@ const chartAnimOptions = {
             }
         },
         y: {
-            duration: 600,
+            duration: prefersReducedMotion ? 0 : 400,
             easing: 'easeOutQuart',
             from: (ctx) => {
                 // 仅数据点生效：让柱子从坐标轴 0 竖直生长到最新值
@@ -43,7 +51,8 @@ function smoothUpdateChart(chart, labels, datasets) {
     }
     chart.data.labels = labels
     chart.data.datasets = datasets
-    chart.update()
+    // 显式指定更新动画时长：Chart.js 默认 1000ms 明显拖沓，收敛到 400ms（reduced-motion 下 0ms）
+    chart.update({ duration: prefersReducedMotion ? 0 : 400 })
 }
 
 // 全局暴露（app.js 是普通 <script>，非模块，用 window 挂载）

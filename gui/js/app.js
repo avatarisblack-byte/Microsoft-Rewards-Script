@@ -123,8 +123,9 @@
                 const ts = entry.time ? new Date(entry.time).toLocaleString('zh-CN', { hour12: false }) : '';
                 return `<div class="text-[11px] leading-tight ${/ERROR|失败/i.test(entry.line) ? 'text-red-500' : /WARN/i.test(entry.line) ? 'text-yellow-600' : /DEBUG/i.test(entry.line) ? 'text-gray-400' : 'text-gray-600'}"><span class="text-gray-300 mr-2">${ts || ''}</span>${escapeHtml(entry.line)}</div>`;
             }).join('');
-            // 滚动到底部
-            logBox.scrollTop = logBox.scrollHeight;
+            // 仅当用户接近底部时才自动滚动，避免打断向上翻阅历史日志
+            const nearBottom = logBox.scrollHeight - logBox.scrollTop - logBox.clientHeight < 40;
+            if (nearBottom) logBox.scrollTop = logBox.scrollHeight;
         }
 
         async function pollTaskStatus() {
@@ -428,24 +429,50 @@
             // === 各账号累计收益条 ===
             // 过滤掉累计收益为零的账户（不显示在列表中）
             const accountTotals = (statsData.accountTotals || []).filter(a => a.totalPoints > 0);
+            const maxAccPoints = Math.max(...accountTotals.map(a => a.totalPoints), 1);
+            // DOM diff 更新：复用已有节点以触发 scaleX 过渡（30s 轮询时从旧值平滑过渡，而非瞬跳）
+            renderAccountBars(barsEl, accountTotals, maxAccPoints);
+        }
+
+        // ===== 渲染：各账号累计收益条（DOM diff 更新，让过渡真正生效） =====
+        // 原实现用 innerHTML 全量重绘：新 DOM 直接落在目标宽度，CSS transition 永不播放，每次轮询宽度瞬跳。
+        // 改为按账号复用/增删行，仅更新 transform: scaleX，配合 .stats-bar-fill 的 400ms ease-out 从旧值平滑过渡。
+        function renderAccountBars(container, accountTotals, maxAccPoints) {
+            if (!container) return;
             if (!accountTotals.length) {
-                barsEl.innerHTML = '<p class="text-gray-400">暂无账号统计数据</p>';
+                container.innerHTML = '<p class="text-gray-400">暂无账号统计数据</p>';
                 return;
             }
-
-            const maxAccPoints = Math.max(...accountTotals.map(a => a.totalPoints), 1);
-            barsEl.innerHTML = accountTotals.map((acc, idx) => {
+            const byAccount = new Map(accountTotals.map(a => [a.account, a]));
+            // 移除已不存在的行
+            [...container.children].forEach(row => {
+                const name = row.getAttribute('data-account');
+                if (name && !byAccount.has(name)) row.remove();
+            });
+            accountTotals.forEach((acc, i) => {
                 const width = Math.max(4, (acc.totalPoints / maxAccPoints) * 100);
-                return `
-                <div class="flex items-center gap-3">
-                    <span class="w-40 flex-shrink-0 text-xs text-gray-600 truncate text-right">${escapeHtml(acc.account)}</span>
-                    <div class="flex-1 min-w-0 bg-gray-100 rounded-full h-5 overflow-hidden">
-                        <div class="bg-blue-500 h-full rounded-full transition-all duration-500" style="width: ${width}%"></div>
-                    </div>
-                    <span class="w-24 flex-shrink-0 text-xs font-bold text-blue-700 text-left">+${acc.totalPoints} pts</span>
-                    <span class="w-14 flex-shrink-0 text-[11px] text-gray-400 text-left">${acc.activeDays} 天</span>
-                </div>`;
-            }).join('');
+                let row = [...container.children].find(r => r.getAttribute('data-account') === acc.account);
+                if (!row) {
+                    row = document.createElement('div');
+                    row.className = 'flex items-center gap-3';
+                    row.setAttribute('data-account', acc.account);
+                    row.innerHTML = `
+                <span class="w-40 flex-shrink-0 text-xs text-gray-600 truncate text-right"></span>
+                <div class="flex-1 min-w-0 bg-gray-100 rounded-full h-5 overflow-hidden">
+                    <div class="stats-bar-fill bg-blue-500 h-full rounded-full" style="transform: scaleX(0)"></div>
+                </div>
+                <span class="w-24 flex-shrink-0 text-xs font-bold text-blue-700 text-left"></span>
+                <span class="w-14 flex-shrink-0 text-[11px] text-gray-400 text-left"></span>`;
+                }
+                // 排序（按总积分）变化时移动到正确位置
+                if (container.children[i] !== row) {
+                    container.insertBefore(row, container.children[i] || null);
+                }
+                row.children[0].textContent = acc.account;
+                row.querySelector('.stats-bar-fill').style.transform = `scaleX(${width / 100})`;
+                row.children[2].textContent = `+${acc.totalPoints} pts`;
+                row.children[3].textContent = `${acc.activeDays} 天`;
+            });
         }
 
         // ===== 导出日志压缩包 =====
@@ -886,16 +913,21 @@
         // 串行保存链：快速连续修改时按顺序写盘，避免并发 PUT 乱序
         let configSaveChain = Promise.resolve();
 
-        // 右上角保存状态提示（短暂显示后消失）
+        // 右上角保存状态提示（短暂显示后淡出，而非瞬间消失）
         let configSaveStatusTimer = null;
         function setConfigSaveStatus(text, isError) {
             const el = document.getElementById('config-save-status');
             if (!el) return;
             el.textContent = text;
+            el.style.opacity = '1';
             el.classList.toggle('text-green-600', !isError);
             el.classList.toggle('text-red-600', isError);
             clearTimeout(configSaveStatusTimer);
-            configSaveStatusTimer = setTimeout(() => { el.textContent = ''; }, 2500);
+            configSaveStatusTimer = setTimeout(() => {
+                // opacity 200ms 淡出后再清空文本，避免文字残留闪烁
+                el.style.opacity = '0';
+                setTimeout(() => { if (el.style.opacity === '0') el.textContent = ''; }, 200);
+            }, 2500);
         }
 
         // 静默保存：增量提交单个字段，成功后用后端合并结果更新 configCache（不重渲染表单，避免打断输入）
@@ -1248,20 +1280,31 @@
         }
 
         // ===== 弹窗 =====
+        // 进入：移除 hidden → 双 rAF 后挂 data-open，触发 opacity/scale 过渡（替代脆弱的 10ms setTimeout）
         function openModal(modalId) {
             const modal = document.getElementById(modalId);
-            if (modal) {
-                modal.classList.remove('hidden');
-                modal.style.opacity = '0';
-                setTimeout(() => modal.style.opacity = '1', 10);
-            }
+            if (!modal) return;
+            if (modal._closeTimer) { clearTimeout(modal._closeTimer); modal._closeTimer = null; }
+            modal._closing = false; // 取消挂起的关闭（防止快速开关的竞态）
+            modal.classList.remove('hidden');
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => modal.setAttribute('data-open', 'true'));
+            });
         }
 
+        // 退出：移除 data-open 播放 250ms 退出动画，transitionend 后再 display:none（与进入路径对称）
         function closeModal(modalId) {
             const modal = document.getElementById(modalId);
-            if (modal) {
+            if (!modal || modal.classList.contains('hidden') || modal._closing) return;
+            modal._closing = true;
+            modal.removeAttribute('data-open');
+            const finish = () => {
+                if (!modal._closing) return; // 已被重新打开，不隐藏
+                modal._closing = false;
                 modal.classList.add('hidden');
-            }
+            };
+            modal.addEventListener('transitionend', finish, { once: true });
+            modal._closeTimer = setTimeout(finish, 300); // 兜底（reduced-motion 下过渡为 200ms）
         }
 
         // ===== 初始化 =====

@@ -221,3 +221,55 @@
         background-color: #fee2e2;
     }
 }
+
+/* ===== 弹窗进入/退出（review-animations：modal 居中豁免，scale(0.96)+opacity，250ms ease-out，进出对称） ===== */
+.modal-root .modal-backdrop {
+    transition: opacity 250ms var(--ease-out);
+}
+.modal-root .modal-surface {
+    transform-origin: center; /* modal 豁免：不锚定触发器，保持居中缩放 */
+    transition: opacity 250ms var(--ease-out), transform 250ms var(--ease-out);
+}
+.modal-root:not([data-open]) .modal-backdrop { opacity: 0; }
+.modal-root:not([data-open]) .modal-surface { opacity: 0; transform: scale(0.96); }
+.modal-root[data-open] .modal-backdrop { opacity: 1; }
+.modal-root[data-open] .modal-surface { opacity: 1; transform: scale(1); }
+
+/* ===== 面板切换（tens/天高频 → 仅 160ms 极轻淡入，不做位移花哨） ===== */
+.content-panel { animation: panel-in 160ms var(--ease-out); }
+@keyframes panel-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== 开关（toggle）：轨道颜色 150ms ease（滑块位移由 HTML 里的 after:transition-transform 负责） ===== */
+.toggle-track { transition: background-color 150ms ease; }
+
+/* ===== 各账号累计收益条：GPU 属性 scaleX + 精确过渡（替代 width + transition-all） ===== */
+.stats-bar-fill {
+    transform-origin: left;
+    transition: transform 400ms var(--ease-out);
+}
+
+/* ===== 保存状态提示淡出 ===== */
+#config-save-status { transition: opacity 200ms ease; }
+
+/* ===== 弹窗代理字段禁用态 ===== */
+#settings-proxy-fields { transition: opacity 200ms ease; }
+
+/* ===== 关闭服务遮罩淡入 ===== */
+#shutdown-overlay { animation: fade-in 200ms var(--ease-out); }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ===== 无障碍：减少动态（更少更轻，非归零） ===== */
+@media (prefers-reduced-motion: reduce) {
+    #task-status-ping { animation: none; opacity: 0.5; }
+    .content-panel, #shutdown-overlay { animation: none; }
+    .toggle-track, #config-save-status, #settings-proxy-fields { transition: none; }
+    .stats-bar-fill { transition: none; }
+    .modal-root .modal-surface {
+        transform: none !important; /* 去掉位移/缩放，只留 opacity 淡入淡出 */
+        transition: opacity 200ms ease;
+    }
+    .modal-root .modal-backdrop { transition: opacity 200ms ease; }
+}

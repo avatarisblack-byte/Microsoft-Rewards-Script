@@ -1,33 +1,36 @@
 # Microsoft Rewards 脚本 — GUI 控制面板
 
-本项目为 [Microsoft-Rewards-Script](../README.md) 的可视化 Web 控制面板，让你**不用碰 JSON 和命令行**，在浏览器里点一点就能管理账号、调整配置、查看统计、启停任务。
+> 不用碰 JSON 和命令行，在浏览器里点一点即可完成账号管理、配置调整、统计查看与任务启停的可视化控制面板。
+
+本项目是 [Microsoft-Rewards-Script](../README.md)（TypeScript 积分自动化脚本）的配套 Web 控制台，运行在本机 `127.0.0.1`，数据不联网、零外部依赖。
 
 ---
 
-## 📖 本文档与根目录 README 的关系
+## 📖 文档定位
 
-| 维度 | 本文档（gui/README.md） | 根目录 README.md |
-|------|------------------------|------------------|
+| 维度 | 本文档（`gui/README.md`） | 根目录 `README.md` |
+|------|--------------------------|--------------------|
 | 读者 | 使用 GUI 面板操作的用户 | 部署 / 配置脚本本身的用户 |
 | 入口 | 双击 `gui/start-gui.bat` → 浏览器打开面板 | `npm start` / `run.bat` / Docker |
-| 核心 | 面板功能、界面操作、GUI 安全策略 | 脚本自动化能力、配置项、部署方式 |
-| 配置方式 | 浏览器里点开关 / 填表单（高风险字段锁定） | 手改 `accounts.json` / `config.json` / 环境变量 |
-| 内容边界 | 不重复讲脚本内部逻辑、查询引擎细节等 | 不涉及 GUI 界面 |
-
-> 💡 **简单说**：根目录 README 讲"脚本怎么跑"，本文档讲"脚本怎么用面板管"。两者互补，首次使用建议先看根目录 README 完成环境搭建，再用本面板日常运维。
+| 核心 | 面板功能、界面操作、数据安全策略 | 脚本自动化能力、配置项、部署方式 |
+| 配置 | 浏览器里点开关 / 填表单（高风险字段锁定） | 手改 `accounts.json` / `config.json` / 环境变量 |
+| 内容边界 | 不重复讲脚本内部逻辑、查询引擎细节 | 不涉及 GUI 界面 |
 
 ---
 
 ## ✨ 核心特性
 
-- ✅ **零依赖**：后端只用 Node.js 内置模块（http/fs/child_process），无需 npm 安装
-- ✅ **本地运行**：只在本机 127.0.0.1 提供服务，数据不联网
-- ✅ **4 大面板**：仪表盘总览 / 账号管理 / 数据统计 / 全局设置
-- ✅ **实时轮询**：任务状态 5 秒刷新，面板数据 30 秒自动刷新
-- ✅ **账号可视化**：增删改查、独立代理、2FA 密钥均在浏览器完成
-- ✅ **Session 导入导出**：压缩包一键备份 / 恢复登录会话
-- ✅ **日志管理**：查看、导入、导出、按日期解析
-- ✅ **风险保护**：高危配置字段锁定、写操作自动备份、导入白名单防路径穿越
+| 特性 | 说明 |
+|------|------|
+| 🚫 **零依赖** | 后端只用 Node.js 内置模块（http / fs / child_process），无需 `npm install`，`node gui/server.js` 直接运行 |
+| 🔒 **本地运行** | 仅监听 `127.0.0.1`，数据不出本机；SSE 长连接保活，关闭浏览器页面即自动退出进程 |
+| 🖥 **四大面板** | 仪表盘总览 / 账号管理 / 数据统计 / 全局设置，左侧导航一键切换（160ms 轻量过渡） |
+| 🔄 **实时轮询** | 任务状态 5 秒刷新（日志实时滚动），面板数据 30 秒自动刷新 |
+| 👤 **账号可视化** | 增删改查、独立代理、2FA 密钥、指纹保留，全部浏览器内完成 |
+| 📦 **Session 导入导出** | 压缩包一键备份 / 恢复登录会话（`session_*.json` 白名单） |
+| 📜 **日志管理** | 查看、导入、导出、按日期解析、一键统计 |
+| 🛡 **风险保护** | 高危配置字段锁定、写操作自动 `.bak` 备份 + 失败回滚、导入白名单 + 防路径穿越 |
+| 🎬 **动效规范** | 按钮按压反馈、弹窗进出对称动画、开关过渡均遵循 emil-design-eng 交互标准，并完整支持系统"减少动态"偏好 |
 
 ---
 
@@ -51,29 +54,34 @@ VBS 会以隐藏窗口形式调用 `start-gui.bat`，浏览器 3 秒后自动打
 
 > ⚠️ 静默模式隐藏了窗口，无法用 Ctrl+C 停止服务；请使用 `stop-gui.bat` 或面板右上角"关闭服务"。
 
-> 启动日志中会显示：
-> ```
-> Microsoft-Rewards-Script 控制台已启动: http://localhost:3000
-> 账号文件: ...\dist\accounts.json
-> 配置来源: ...\src\config.example.json
-> 日志目录: ...\logs
-> ```
+启动日志中会显示：
+
+```
+Microsoft-Rewards-Script 控制台已启动: http://localhost:3000
+账号文件: ...\dist\accounts.json
+配置来源: ...\src\config.example.json
+日志目录: ...\logs
+```
 
 ### 2. 更换端口
 
-默认端口为 `3000`，若被占用，编辑 `gui/start-gui.bat` 中的一行：
+默认端口为 `3000`。若被占用，编辑 `gui/start-gui.bat` 中的一行：
 
 ```bat
 set PORT=3000
 ```
 
-改成其他端口即可，浏览器打开地址会自动跟随。
+改成其他端口保存即可，浏览器打开地址会自动跟随（`stop-gui.bat` 的 `PORT_TO_KILL` 需同步修改）。
 
 ### 3. 停止服务
 
-- 界面右上角点 **「关闭服务」**，服务端延迟 500ms 退出
-- 双击 **`gui/stop-gui.bat`**：按端口（默认 3000）精准查找 PID 并强制结束，**不会误杀你其他正在运行的 Node 脚本**
-- 或直接关闭 `start-gui.bat` 的命令行窗口（仅普通启动方式适用）
+| 方式 | 说明 |
+|------|------|
+| 面板右上角「关闭服务」 | 服务端延迟 500ms 优雅退出 |
+| 双击 `gui/stop-gui.bat` | 按端口精准查找 PID 并强制结束，**不会误杀其他 Node 脚本** |
+| 关闭 `start-gui.bat` 的 CMD 窗口 | 仅普通启动方式适用 |
+
+> 💡 **页面即生命周期**：GUI 通过 SSE 长连接与浏览器"共生"——页面关闭/刷新后，服务进程会自动退出（`/api/keepalive` 连接断开 → `process.exit(0)`）。
 
 ---
 
@@ -84,68 +92,130 @@ set PORT=3000
 左右结构：左侧导航 + 右侧内容区，顶部提供任务控制。
 
 - **账户总数**：已配置账号数量
-- **今日总收益 / 总积分**：
-  - 今日收益：本次运行各账号 `ACCOUNT-END` 收集积分之和
-  - 总积分：账单页最新余额之和（`URL-REWARD` 的 `新余额=` 优先，缺失时用 `ACCOUNT-END` 的 `→ 新值:` 兜底）
-  - 统计口径为「已配置账号 + 日志中有收益但未配置的账号」，避免总积分为 0
-- **启动 / 停止任务**：一键启停脚本子进程
-- **任务实时日志**：最近 100 行子进程 stdout/stderr，按 ERROR/WARN/DEBUG 着色
+- **今日收益 / 总收益**：
+  - 今日收益：本次运行各账号 `ACCOUNT-END` 收集积分之和（同一天多次运行自动累加，按本地时区计算）
+  - 总收益：脚本执行带来的累计收益（非账户余额）
+- **启动 / 停止任务**：一键启停脚本子进程（`spawn node dist/index.js`）
+- **任务实时日志**：最近 100 行子进程 stdout/stderr，按 ERROR/WARN/DEBUG 着色；智能滚动——仅在您接近底部时自动跟随，向上翻阅历史不会被强制拉回
+- **导出 / 导入数据**：一键打包或恢复全部本地数据（Session + 日志 + 账号 + 配置）
 
 > **为什么总积分会显示 0？** 检查 `dist\accounts.json` 中是否配置了有收益日志的账号，或日志中是否有该账号的 `ACCOUNT-END` / `URL-REWARD` 记录。详见下方 FAQ。
 
 ### ② 账号管理（Accounts）
 
 - **添加账户**：输入邮箱 / 密码，可选 TOTP 2FA 密钥、恢复邮箱；后端自动补全默认字段
-- **账户卡片**：显示地区、语言、指纹保留、代理、最近事件状态
+- **账户卡片**：显示地区、语言、指纹保留、代理、最近事件状态（状态经邮箱前缀与全量日志摘要关联）
 - **编辑与删除**：弹窗内修改 `geoLocale`、`langCode`、桌面/移动指纹、独立代理；删除有二次确认
 - **导出 / 导入 Session**：将 `dist/browser/sessions/` 下登录会话打包 zip 导出，或导入 zip 恢复登录状态（白名单只接受 `session_*.json`）
 
 ### ③ 数据统计（Stats）
 
-- **历史总收益 / 今日收益 / 累计活跃天数**：基于 `logs/` 日志实时解析
+- **历史总收益 / 今日收益 / 累计活跃天数**：基于 `logs/` 日志实时解析（统计口径与仪表盘一致）
 - **每日积分趋势图**：Chart.js 堆叠柱状图，按日期 × 账号展示每日收益
-  - **收益为零的账户自动隐藏**（图例与堆叠柱均不显示）
-  - 动画：首次进入从坐标轴 0 竖直生长；30 秒刷新时从上次高度平滑过渡
-- **各账号累计收益**：按总积分排序的进度条列表（同样过滤零收益账户）
+  - 收益为零的账户自动隐藏（图例与堆叠柱均不显示）
+  - 动画：首次进入静态呈现（避免隐藏容器尺寸错乱）；30 秒刷新时从上次高度平滑过渡（400ms，不归零重飞）
+- **各账号累计收益**：按总积分排序的进度条列表（同样过滤零收益账户），数据更新时进度条从旧宽度平滑过渡
 
 ### ④ 全局设置（Settings）
 
 - **基础参数**：无头模式、连续签到保护、错误诊断、调试日志等开关
 - **任务开关**：每日任务、额外奖励、特别活动、集点卡、App 任务、桌面/移动搜索、每日签到、阅读奖励
 - **搜索行为**：随机滚动 / 点击、中国区 API Key、搜索间隔、阅读延迟、网页停留时间
-- **只读配置区**：`sessionPath`、`clusters`、`queryEngines`、`webhook` 等复杂 / 高风险字段**只读**，如需修改点击 **「打开配置文件」** 用系统编辑器手动改
-- **操作按钮**：打开配置文件 / 保存全部配置 / 重置默认（以 `src/config.example.json` 为模板覆盖）
+- **只读配置区**：`sessionPath`、`clusters`、`queryEngines`、`webhook` 等复杂 / 高风险字段**只读**，如需修改点击「打开配置文件」用系统编辑器手动改
+- **即时自动保存**：每个开关/输入框修改后自动保存（checkbox 立即提交、文本 500ms 防抖），右上角显示"✓ 已自动保存 / ✗ 保存失败"状态（2.5s 后淡出），无需手动点保存
+- **操作按钮**：打开配置文件 / 重置默认（以 `src/config.example.json` 为模板覆盖，自动备份）
 
 ---
 
 ## 🛡 安全与保护
 
-- **高风险字段锁定**：`searchSettings.parallelSearching`（并行搜索）被服务端强制忽略，不允许通过 GUI 写入——避免制造异常流量模式、增加封号风险
-- **写操作自动备份**：所有写操作（账号增删改、配置保存/重置）先 `copyFileSync` 备份 `.bak`，写入失败自动回滚
-- **导入白名单 + 防路径穿越**：Session 只收 `session_*.json`、日志只收 `*.log`；双重相对路径检查确保文件落点在目标目录内
-- **请求体限制**：100MB 上限，防异常大包
-- **静态资源**：文件名黑名单（`..` / 路径分隔符）防路径穿越
+| 机制 | 说明 |
+|------|------|
+| **高风险字段锁定** | `searchSettings.parallelSearching`（并行搜索）被服务端强制忽略，不允许通过 GUI 写入——避免制造异常流量模式、增加封号风险 |
+| **写操作自动备份** | 所有写操作（账号增删改、配置保存/重置、数据导入）先 `copyFileSync` 备份 `.bak`，写入失败自动回滚 |
+| **导入白名单 + 防路径穿越** | Session 只收 `session_*.json`、日志只收 `*.log`；双重相对路径检查确保文件落点在目标目录内 |
+| **请求体限制** | 100MB 上限，防异常大包 |
+| **静态资源防护** | 文件名黑名单（`..` / 路径分隔符）防路径穿越 |
+| **本机隔离** | 服务只监听 `127.0.0.1:3000`，不对外网开放，数据不联网 |
+
+---
+
+## 🎨 前端技术栈与交互体验
+
+| 技术 | 用途 |
+|------|------|
+| Tailwind CSS（CDN） | 布局与样式工具类，无需构建步骤 |
+| Chart.js v4（CDN） | 每日积分趋势堆叠柱状图 |
+| 原生 JavaScript（ES2020+） | 全部交互逻辑（`gui/js/app.js`），无框架依赖 |
+| 动效规范 | 遵循 emil-design-eng / review-animations 标准：强 `ease-out` 曲线 token（`--ease-out: cubic-bezier(0.23,1,0.32,1)`）、UI 动画 ≤300ms、只动画 transform/opacity（GPU 合成）、完整 `prefers-reduced-motion` 降级 |
+
+**微交互细节一览：**
+
+- 按钮按压：`scale(0.97)` 160ms 即时反馈（所有可点击元素）
+- 弹窗：打开 `opacity + scale(0.96)→1`、关闭对称退出（各 250ms），背板与面板同步过渡
+- 开关：滑块 200ms ease-out 位移 + 轨道颜色 150ms 渐变
+- 面板切换：160ms 极轻淡入（高频操作克制档，不做夸张动画）
+- 收益进度条：`transform: scaleX` GPU 过渡，30s 轮询时平滑增长不瞬跳
+- 图表：刷新时从当前高度平滑过渡到新值（400ms），不归零重飞
+- 系统开启"减少动态"后：移除位移/缩放动画，仅保留透明度与颜色反馈
 
 ---
 
 ## 📂 GUI 项目结构
 
-| 文件 | 职责 |
-|------|------|
-| `gui/start-gui.bat` | 一键启动：设 `PORT` 环境变量 → 3 秒后自动开浏览器 → 当前窗口跑 `node server.js` |
-| `gui/server.js` | 零依赖本地服务：静态页面 + JSON API + 任务子进程管理 + 日志/统计解析 |
-| `gui/design-reference.html` | 前端页面结构（HTML + Tailwind CDN），样式与逻辑已拆分为外部文件 |
-| `gui/css/main.css` | 公共样式（卡片阴影、滚动条、图表占位） |
-| `gui/css/animations.css` | 图表动画辅助样式 |
-| `gui/js/animator.js` | Chart.js 动画工具（x 锚定 + y 从 0 生长 + 平滑更新） |
-| `gui/js/app.js` | 前端核心交互逻辑（加载/渲染/任务控制/导入导出/弹窗） |
-| `gui/summary.json` | `--generate-summary` CLI 生成的持久化统计产物 |
+```
+gui/
+├── design-reference.html      # 前端页面（HTML 结构 + Tailwind/Chart.js CDN）
+├── server.js                  # 服务入口：组装 ctx + 路由分发 + --generate-summary CLI
+├── start-gui.bat              # 一键启动（纯 ASCII，端口 3000 可改）
+├── start-gui-silent.vbs       # 静默后台启动
+├── stop-gui.bat               # 按端口精准停止
+├── summary.json               # --generate-summary CLI 产物（日志统计快照）
+├── README.md                  # 本文档
+├── css/
+│   ├── main.css               # 按钮组件类 / 弹窗 / 开关 / 进度条动效 / reduced-motion
+│   └── animations.css         # 图表容器辅助样式
+├── js/
+│   ├── app.js                 # 前端核心交互逻辑
+│   └── animator.js            # Chart.js 动画工具（从 0 生长 + 平滑更新）
+└── lib/                       # 服务端模块（零依赖，模块化拆分）
+    ├── config.js              # 常量与路径解析
+    ├── httpUtils.js           # sendJson / sendText / readBody
+    ├── validator.js           # 账号结构校验
+    ├── logger.js              # 日志解析与读取
+    ├── summary.js             # 日志统计摘要（收益口径）
+    ├── archive.js             # 跨平台 zip 打包 / 解压
+    ├── taskManager.js         # 任务子进程管理
+    └── routes/                # 8 个路由模块（统一签名，按序分发）
+        ├── static.js          # 页面 + css/js 静态资源
+        ├── config.js          # 配置 CRUD / 重置 / 打开
+        ├── accounts.js        # 账号 CRUD（.bak 备份 + 回滚）
+        ├── logs.js            # 日志列表 / 导入导出 / 按日期
+        ├── sessions.js        # Session zip 导入导出
+        ├── data.js            # 一键数据导入导出
+        ├── tasks.js           # 任务启停与状态
+        └── system.js          # 关闭服务 / 统计 / SSE 保活
+```
 
 > 接口与实现细节见 [`doc/CODE_MAP.md`](../doc/CODE_MAP.md) 的「GUI 控制面板」章节。
 
 ---
 
-## ❓ 常见问题（GUI 视角）
+## 🔌 接口速查（前端视角）
+
+| 分组 | 接口 |
+|------|------|
+| 账号 | `GET/POST /api/accounts`、`PUT/DELETE /api/accounts/:email` |
+| 配置 | `GET/PUT /api/config`、`POST /api/config/reset`、`POST /api/config/open` |
+| 任务 | `POST /api/start`、`POST /api/stop`、`GET /api/task` |
+| 日志 | `GET /api/logs`、`GET /api/logs/export`、`POST /api/logs/import`、`GET /api/logs/:date`、`GET /api/logs/summary` |
+| Session | `GET /api/sessions/export`、`POST /api/sessions/import` |
+| 数据 | `GET /api/data/export`、`POST /api/data/import` |
+| 系统 | `POST /api/shutdown`、`GET /api/stats`、`GET /api/keepalive`（SSE） |
+
+---
+
+## ❓ 常见问题
 
 <details>
 <summary><b>浏览器没自动打开？</b></summary>
@@ -168,7 +238,7 @@ set PORT=3000
 按顺序排查：
 1. 配置的账号是否真的在 `dist\accounts.json` 中（GUI 读的是这个文件，不是根目录的 `accounts.json`）
 2. 该账号在 `logs/` 日志中是否有 `ACCOUNT-END` / `URL-REWARD` 记录
-3. 若日志中有收益账号但没配置，可在「账号管理」中添加这些账号，或确认总积分统计已含"日志中的未配置账号"
+3. 若日志中有收益账号但没配置，可在「账号管理」中添加这些账号，或确认总收益统计已含"日志中的未配置账号"
 
 </details>
 
