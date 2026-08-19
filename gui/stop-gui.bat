@@ -7,7 +7,7 @@ echo   正在停止 Microsoft Rewards GUI 服务...
 echo ================================================
 
 :: 停止端口配置：需与 start-gui.bat 中的 set PORT 保持一致
-set PORT_TO_KILL=3001
+set PORT_TO_KILL=3000
 
 :: 按端口精准清理：查找监听 PORT_TO_KILL 的 PID 并强制结束
 :: 不用 taskkill /im node.exe（会误杀其他 Node 进程，如你的其他脚本）

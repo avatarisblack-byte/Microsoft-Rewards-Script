@@ -3,7 +3,7 @@ title Microsoft Rewards GUI Server (port 3000)
 cd /d "%~dp0"
 
 :: Port config: edit here if port 3000 is in use (server.js reads the PORT env variable)
-set PORT=3001
+set PORT=3000
 
 if not exist "server.js" (
     echo [ERROR] server.js not found. Current directory: %cd%
