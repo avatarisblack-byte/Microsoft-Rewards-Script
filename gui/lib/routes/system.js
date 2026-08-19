@@ -23,13 +23,17 @@ function handleSystem(req, res, pathname, ctx) {
 
     // POST /api/setup（运行根目录 setup 程序：安装依赖 + 构建环境）
     // 异步非阻塞：cmd /c start /min 开独立最小化窗口，detached + unref 与 GUI 进程解耦，
-    // HTTP 立即响应，GUI 界面不会卡顿。
+    // HTTP 立即响应，GUI 界面不会卡顿；stdio:ignore 完全丢弃子进程输出，不污染 GUI。
     // 冲突防护：任务运行中时 setup 的构建步骤（rimraf dist）可能中断任务子进程，
     // 前端已做警告确认（见 app.js setupEnvironment）。
+    // 注意：必须「先 sendJson 再 return true」——sendJson 无返回值，
+    // 若写成 return http.sendJson(...) 会返回 undefined（falsy），
+    // 导致 server.js 路由分发继续走到 404 兜底对已响应 res 二次 writeHead → ERR_HTTP_HEADERS_SENT。
     if (pathname === '/api/setup' && req.method === 'POST') {
         const setupBat = path.join(ctx.config.ROOT, 'setup.bat')
         if (!fs.existsSync(setupBat)) {
-            return http.sendJson(res, 400, { error: '未找到 setup.bat（项目根目录）' })
+            http.sendJson(res, 400, { error: '未找到 setup.bat（项目根目录）' })
+            return true
         }
         try {
             const child = spawn('cmd', ['/c', 'start', '', '/min', 'setup.bat'], {
@@ -39,9 +43,11 @@ function handleSystem(req, res, pathname, ctx) {
             })
             child.unref() // GUI 进程退出不影响 setup 继续
             console.log('[GUI] 已启动安装环境（setup.bat）')
-            return http.sendJson(res, 200, { success: true, message: '安装环境已在独立最小化窗口启动，请等待其完成' })
+            http.sendJson(res, 200, { success: true, message: '安装环境已在独立最小化窗口启动，请等待其完成' })
+            return true
         } catch (e) {
-            return http.sendJson(res, 500, { error: `启动 setup 失败: ${e.message}` })
+            http.sendJson(res, 500, { error: `启动 setup 失败: ${e.message}` })
+            return true
         }
     }
 

@@ -36,7 +36,11 @@ const server = http.createServer((req, res) => {
     for (const route of routes) {
         if (route(req, res, pathname, ctx)) return
     }
-    httpUtils.sendJson(res, 404, { error: `未知接口: ${pathname}` })
+    // 防御：若某路由已发送响应但返回了 falsy（未遵守「返回 true=已处理」契约），
+    // 跳过 404 兜底，避免对已结束的 res 二次 writeHead 抛 ERR_HTTP_HEADERS_SENT 导致进程崩溃
+    if (!res.writableEnded) {
+        httpUtils.sendJson(res, 404, { error: `未知接口: ${pathname}` })
+    }
 })
 
 // ===== CLI 模式：node gui/server.js --generate-summary =====
