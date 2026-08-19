@@ -57,6 +57,8 @@ coverage/
 
 # ===== 运行时生成物/临时数据 =====
 gui/summary.json
+gui/gui-settings.json
+gui/cache/
 *.bak
 *.tmp
 *.temp
