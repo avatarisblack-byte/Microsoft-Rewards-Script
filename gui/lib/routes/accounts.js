@@ -41,11 +41,11 @@ function handleAccounts(req, res, pathname, ctx) {
     const { config, http, validator } = ctx
     const accMatch = pathname.match(/^\/api\/accounts\/([^/]+)$/)
 
-    // GET /api/accounts（关联日志摘要）
+    // GET /api/accounts（关联日志摘要：从预生成缓存读取，避免每次全量扫描原始日志）
     if (pathname === '/api/accounts' && req.method === 'GET') {
         const accounts = config.readJson(config.resolveAccountsPath())
         if (!accounts) { http.sendJson(res, 500, { error: '无法读取 accounts.json' }); return true }
-        const logSummary = ctx.summary.summarizeAllLogs()
+        const logSummary = ctx.logCache.getCachedData().accountSummary
         const logMap = {}
         for (const s of logSummary) logMap[s.account] = s
         const enriched = accounts.map(a => ({

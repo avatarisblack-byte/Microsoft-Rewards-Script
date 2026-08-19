@@ -6,7 +6,7 @@ const fs = require('fs')
 const path = require('path')
 
 function handleLogs(req, res, pathname, ctx) {
-    const { config, http, logger, archive, summary } = ctx
+    const { config, http, logger, archive, summary, logCache } = ctx
 
     // GET /api/logs（文件列表）
     if (pathname === '/api/logs') {
@@ -104,6 +104,8 @@ function handleLogs(req, res, pathname, ctx) {
                 if (!imported.length) {
                     return http.sendJson(res, 400, { error: '压缩包内未找到 .log 文件，导入失败' })
                 }
+                // 日志文件已变更：主动失效分析缓存，避免下次请求读到旧摘要（zip 解压保留旧 mtime，快照判定无法覆盖）
+                logCache.invalidateCache()
                 console.log(`[GUI] 已导入 ${imported.length} 个日志文件 → ${config.LOGS_DIR}`)
                 return http.sendJson(res, 200, { success: true, message: `已导入 ${imported.length} 个日志文件`, files: imported, target: config.LOGS_DIR })
             } catch (error) {

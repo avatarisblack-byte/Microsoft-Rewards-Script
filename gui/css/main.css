@@ -251,9 +251,6 @@
     transition: transform 400ms var(--ease-out);
 }
 
-/* ===== 保存状态提示淡出 ===== */
-#config-save-status { transition: opacity 200ms ease; }
-
 /* ===== 弹窗代理字段禁用态 ===== */
 #settings-proxy-fields { transition: opacity 200ms ease; }
 
@@ -265,11 +262,77 @@
 @media (prefers-reduced-motion: reduce) {
     #task-status-ping { animation: none; opacity: 0.5; }
     .content-panel, #shutdown-overlay { animation: none; }
-    .toggle-track, #config-save-status, #settings-proxy-fields { transition: none; }
+    .toggle-track, #settings-proxy-fields { transition: none; }
     .stats-bar-fill { transition: none; }
     .modal-root .modal-surface {
         transform: none !important; /* 去掉位移/缩放，只留 opacity 淡入淡出 */
         transition: opacity 200ms ease;
     }
     .modal-root .modal-backdrop { transition: opacity 200ms ease; }
+}
+
+/* ===== 保存状态 Toast（emil-design-eng：ease-out 进出、GPU 属性、scale(0.97) 起始、图标+颜色区分） ===== */
+#save-toast {
+    position: fixed;
+    right: 1.25rem;
+    bottom: 1.25rem;
+    z-index: 60; /* 高于弹窗 z-50，任何场景可见 */
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    max-width: 22rem;
+    padding: 0.625rem 0.875rem;
+    border-radius: 0.75rem;
+    background-color: #ffffff;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+    opacity: 0;
+    transform: translateY(12px) scale(0.97); /* 从 0.97 起始，非 scale(0) */
+    pointer-events: none; /* 无可交互元素，不阻挡下层操作 */
+    transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out);
+}
+#save-toast[data-visible] {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+#save-toast .toast-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 9999px;
+    flex-shrink: 0;
+}
+#save-toast .toast-icon svg {
+    width: 1.125rem;
+    height: 1.125rem;
+}
+#save-toast .toast-text {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #374151;
+    line-height: 1.25rem;
+}
+/* 成功 / 失败视觉区分：边框 + 圆底图标 */
+#save-toast[data-type="success"] { border-color: #bbf7d0; }
+#save-toast[data-type="success"] .toast-icon { background-color: #dcfce7; color: #16a34a; }
+#save-toast[data-type="error"] { border-color: #fecaca; }
+#save-toast[data-type="error"] .toast-icon { background-color: #fee2e2; color: #dc2626; }
+@media (prefers-reduced-motion: reduce) {
+    #save-toast {
+        transform: none !important; /* 去掉位移/缩放，仅保留 opacity 过渡 */
+        transition: opacity 150ms ease;
+    }
+}
+
+/* ===== 面板顶部间距统一（强制对齐） =====
+ * 顶部安全边距一律由 #contentPanels 的 padding (p-8, 32px) 提供；
+ * 显式清零 .content-panel 的 margin-top，避免任何面板因顺序/可见性/未来改动产生额外间距，
+ * 保证仪表盘 / 账户管理 / 数据统计 / 全局设置四个页面顶部结构完全一致 */
+.content-panel { margin-top: 0; }
+
+/* ===== 账户动态：渐变收益条（蓝系渐变，静态数据指示，不产生位移） ===== */
+.stats-grad-bar {
+    background: linear-gradient(90deg, #93c5fd, #3b82f6, #2563eb);
 }

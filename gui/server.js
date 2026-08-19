@@ -13,6 +13,7 @@ const logger = require('./lib/logger')
 const summary = require('./lib/summary')
 const archive = require('./lib/archive')
 const taskManager = require('./lib/taskManager')
+const logCache = require('./lib/logCache')
 
 // ===== 路由处理器（统一签名 (req,res,pathname,ctx)=>boolean，true=已处理） =====
 const rStatic = require('./lib/routes/static')
@@ -25,7 +26,7 @@ const rTasks = require('./lib/routes/tasks')
 const rSystem = require('./lib/routes/system')
 
 // ===== 共享上下文（注入依赖，规避循环 require） =====
-const ctx = { config, http: httpUtils, validator, logger, summary, archive, taskManager }
+const ctx = { config, http: httpUtils, validator, logger, summary, archive, taskManager, logCache }
 const routes = [rStatic, rConfig, rAccounts, rSessions, rData, rTasks, rLogs, rSystem]
 
 // ===== HTTP 服务：按序分发，未命中返回 404 =====

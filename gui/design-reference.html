@@ -42,42 +42,50 @@
                 全局设置
             </a>
         </nav>
-        <div class="p-4 text-xs text-gray-400 border-t border-gray-100 text-center">
+        <!-- 底部状态控制区（原顶部常驻栏迁移：状态指示灯 → 启动/停止任务 → 关闭服务，垂直排列、按钮撑满宽度） -->
+        <div class="mt-4 pt-4 border-t border-gray-100 space-y-3">
+            <div class="flex items-center justify-center gap-2 px-2">
+                <span id="task-status-dot-wrap" class="flex h-3 w-3 relative">
+                    <!-- 空闲时静止（无 animate-ping + opacity-0），运行中由 setTaskUI 恢复涟漪动画 -->
+                    <span id="task-status-ping" class="absolute inline-flex h-full w-full rounded-full bg-gray-400 opacity-0"></span>
+                    <span id="task-status-dot" class="relative inline-flex rounded-full h-3 w-3 bg-gray-400"></span>
+                </span>
+                <span id="task-status-text" class="text-sm font-medium text-gray-600">脚本空闲中</span>
+            </div>
+            <button id="task-start-btn" onclick="taskStart()" class="btn btn-dark w-full">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                启动任务
+            </button>
+            <button id="task-stop-btn" onclick="taskStop()" class="hidden btn btn-danger w-full">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"></path></svg>
+                停止任务
+            </button>
+            <button onclick="shutdownServer()" class="btn btn-danger-ghost w-full" title="停止服务并退出">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                关闭服务
+            </button>
+        </div>
+        <div class="mt-2">
+            <button onclick="setupEnvironment()" class="btn btn-secondary w-full" title="运行根目录 setup 程序（安装依赖 / 构建环境）">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                安装环境
+            </button>
+        </div>
+        <div class="p-4 mt-2 text-xs text-gray-400 text-center">
             v2.1.0-GUI
         </div>
     </aside>
 
     <!-- 右侧内容 -->
     <main class="flex-1 min-w-0 flex flex-col h-full bg-gray-50/50">
-        <header class="px-8 py-5 border-b border-gray-200 bg-white/80 backdrop-blur-md flex flex-wrap justify-between items-center gap-3">
-            <h1 class="text-xl font-bold text-gray-800 truncate" id="currentTabTitle">仪表盘总览</h1>
-            <div class="flex flex-wrap items-center gap-3">
-                <span id="task-status-dot-wrap" class="flex h-3 w-3 relative">
-                  <span id="task-status-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-gray-400 opacity-75"></span>
-                  <span id="task-status-dot" class="relative inline-flex rounded-full h-3 w-3 bg-gray-400"></span>
-                </span>
-                <span id="task-status-text" class="text-sm font-medium text-gray-600">脚本空闲中</span>
-                <button id="task-start-btn" onclick="taskStart()" class="btn btn-dark">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                    启动任务
-                </button>
-                <button id="task-stop-btn" onclick="taskStop()" class="hidden btn btn-danger">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"></path></svg>
-                    停止任务
-                </button>
-                <button onclick="shutdownServer()" class="btn btn-danger-ghost" title="停止服务并退出">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                    关闭服务
-                </button>
-            </div>
-        </header>
 
-        <!-- 内容区域容器 -->
-        <div class="flex-1 overflow-y-auto p-8 space-y-8" id="contentPanels">
+        <!-- 内容区域容器：顶部间距统一由 p-8 (32px) 提供；不使用 space-y-*（其选择器仅作用于"非首个可见兄弟"，
+             会因面板顺序/可见性变化导致首个面板与其他面板间距不一致，历史上多次引发回归） -->
+        <div class="flex-1 overflow-y-auto p-8" id="contentPanels">
             
             <!-- 【面板 1：Home 标签页】 -->
             <!-- 外层结构与 panel-accounts 完全一致：content-panel space-y-6 + 顶部标题区 flex justify-between items-end -->
-            <div id="panel-home" class="content-panel space-y-6 mt-8">
+            <div id="panel-home" class="content-panel space-y-6">
                 <div class="flex flex-wrap justify-between items-center min-h-[56px] gap-3">
                     <div class="min-w-0">
                         <h2 class="text-lg font-bold text-gray-800">仪表盘总览</h2>
@@ -226,16 +234,16 @@
 
             <!-- 【面板 4：Settings 标签页 (Global Config)】 -->
             <div id="panel-settings" class="content-panel space-y-6 hidden pb-10">
-                <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
-                    <div class="min-w-0 flex items-center gap-3">
+                <div class="flex flex-wrap justify-between items-center min-h-[56px] gap-3">
+                    <div class="min-w-0">
+                        <h2 class="text-lg font-bold text-gray-800">全局设置</h2>
+                        <p class="text-sm text-gray-500">全局脚本运行参数与任务开关（修改后将在下次启动任务时生效）</p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
                         <button id="config-open-btn" onclick="openConfigFile()" class="btn btn-secondary" title="用系统默认程序打开实际 config 文件">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
                             打开配置文件
                         </button>
-                        <p class="text-sm text-gray-500">修改后将在下次启动任务时生效</p>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <span id="config-save-status" class="text-sm font-medium text-green-600"></span>
                         <button onclick="resetConfig()" class="btn btn-danger-ghost" title="将所有设置恢复为 config.example.json 默认值">
                             重置默认
                         </button>
@@ -256,6 +264,11 @@
                         <div>
                             <label class="block text-sm font-semibold text-gray-700 mb-1.5">全局超时时间 (Global Timeout)</label>
                             <input id="cfg-globalTimeout" type="text" value="50sec" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1.5">GUI 本地端口 (Port)</label>
+                            <input id="gui-port-input" type="number" min="1024" max="65535" step="1" placeholder="3000" class="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors duration-150">
+                            <p class="text-xs text-gray-400 mt-1">范围 1024-65535；修改后立即保存，重启 GUI 后生效</p>
                         </div>
                         <div class="flex items-center justify-between py-2 border-b border-gray-50">
                             <div>
@@ -629,6 +642,12 @@
             <p class="text-sm text-gray-500 mt-2">Node 服务已停止。<br>如需再次使用，请重新运行 start-gui.bat。</p>
             <button onclick="location.reload()" class="btn btn-primary mt-5">重新加载</button>
         </div>
+    </div>
+
+    <!-- 保存状态 Toast（统一反馈组件：图标 + 颜色区分成功/失败，右下角浮动，2.5s 自动消失） -->
+    <div id="save-toast" role="status" aria-live="polite">
+        <span class="toast-icon"></span>
+        <span class="toast-text"></span>
     </div>
 
     <!-- 交互脚本 -->

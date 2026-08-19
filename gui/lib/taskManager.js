@@ -71,6 +71,17 @@ function startTask() {
         appendTaskLog(`[GUI] 任务进程退出 | code=${code ?? 'n/a'} signal=${signal ?? 'n/a'}`)
         console.log(`[GUI] 任务进程退出 | code=${code ?? 'n/a'} signal=${signal ?? 'n/a'}`)
         taskProcess = null
+        // 任务结束 2s 后主动重建日志摘要缓存（延迟等待 stdout/stderr 落盘完成，
+        // 之后 /api/accounts、/api/stats 直接命中新鲜缓存，无需惰性全量解析）
+        setTimeout(() => {
+            try {
+                const { generateCache } = require('./logCache')
+                generateCache()
+                console.log('[GUI] 日志摘要缓存已重建')
+            } catch (e) {
+                console.warn(`[GUI] 日志摘要缓存重建失败: ${e.message}`)
+            }
+        }, 2000).unref()
     })
     taskProcess.on('error', error => {
         appendTaskLog(`[GUI] 任务进程错误: ${error.message}`)

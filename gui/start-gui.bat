@@ -1,9 +1,11 @@
 @echo off
-title Microsoft Rewards GUI Server (port 3000)
+title Microsoft Rewards GUI Server
 cd /d "%~dp0"
 
-:: Port config: edit here if port 3000 is in use (server.js reads the PORT env variable)
-set PORT=3000
+:: Port: read from gui-settings.json (set in GUI Settings page), default 3000
+:: PowerShell reads the port value without parentheses to stay valid inside for /f
+for /f "usebackq delims=" %%p in (`powershell -NoProfile -Command "Get-Content -Raw '%~dp0gui-settings.json' -ErrorAction SilentlyContinue | ConvertFrom-Json -ErrorAction SilentlyContinue | Select-Object -ExpandProperty port"`) do set "PORT=%%p"
+if "%PORT%"=="" set PORT=3000
 
 if not exist "server.js" (
     echo [ERROR] server.js not found. Current directory: %cd%

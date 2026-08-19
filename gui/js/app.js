@@ -2,6 +2,7 @@
         let accountsCache = { accounts: [], logSummary: [] };
         let configCache = null;
         let statsCache = null; // /api/stats 缓存（今日收益/总收益/每日趋势），30s 轮询刷新
+        let guiSettingsCache = { port: 3000 }; // /api/gui-settings 缓存（GUI 专属配置：端口等）
 
         // ===== 工具函数 =====
         function emailUser(email) {
@@ -27,15 +28,6 @@
         function findLogStatus(email) {
             const userName = emailUser(email);
             return (accountsCache.logSummary || []).find(s => s.account === userName) || null;
-        }
-
-        function getLevelColor(level) {
-            switch ((level || '').toUpperCase()) {
-                case 'ERROR': return 'text-red-600';
-                case 'WARN': return 'text-yellow-600';
-                case 'DEBUG': return 'text-gray-400';
-                default: return 'text-gray-600';
-            }
         }
 
         function formatDuration(seconds) {
@@ -76,7 +68,11 @@
                 dot.className = `relative inline-flex rounded-full h-3 w-3 ${running ? 'bg-green-500' : 'bg-gray-400'}`;
             }
             if (ping) {
-                ping.className = `animate-ping absolute inline-flex h-full w-full rounded-full ${running ? 'bg-green-400' : 'bg-gray-400'} opacity-75`;
+                // 仅运行中保留涟漪扩散动画（animate-ping）；空闲时完全静止：
+                // 移除动画类并隐藏扩散圈（opacity-0），只留静止的纯灰色圆点
+                ping.className = running
+                    ? 'animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75'
+                    : 'absolute inline-flex h-full w-full rounded-full bg-gray-400 opacity-0';
             }
         }
 
@@ -141,20 +137,58 @@
         // ===== 数据加载 =====
         async function loadData() {
             try {
-                // 并行拉取账号、配置与统计（统计用于首页"今日收益/总收益"实时卡片）
+                // 并行拉取账号、配置、统计与 GUI 专属设置（统计用于首页"今日收益/总收益"实时卡片）
                 const results = await Promise.allSettled([
                     fetchJson('/api/accounts'),
                     fetchJson('/api/config'),
-                    fetchJson('/api/stats')
+                    fetchJson('/api/stats'),
+                    fetchJson('/api/gui-settings')
                 ]);
                 accountsCache = results[0].status === 'fulfilled' ? results[0].value : accountsCache;
                 configCache = results[1].status === 'fulfilled' ? results[1].value : configCache;
                 if (results[2].status === 'fulfilled') statsCache = results[2].value;
+                if (results[3].status === 'fulfilled') guiSettingsCache = results[3].value;
                 renderAll();
             } catch (error) {
                 console.error('加载数据失败:', error);
                 document.getElementById('home-total-accounts-sub').innerText = '加载失败，请确认已运行 node gui/server.js';
             }
+        }
+
+        // ===== 账户动态组件（状态 Tag / 事件徽章，仪表盘与账户管理共用） =====
+        // 统一状态判定：运行中 / 已完成 / 异常 / 暂无记录
+        function getAccountStatus(log) {
+            if (!log) return { type: 'idle', label: '暂无记录' };
+            if (log.lastEvent === 'ACCOUNT-START' && !log.collectedPoints) return { type: 'running', label: '运行中' };
+            if (log.lastLevel === 'ERROR') return { type: 'error', label: '异常' };
+            return { type: 'done', label: '已完成' };
+        }
+
+        // 状态 Tag：指示点/图标 + 彩色徽章（运行中绿点呼吸、已完成灰勾、异常红叉、空闲灰点）
+        function statusTagHtml(status) {
+            const map = {
+                running: { cls: 'bg-green-100 text-green-700 border-green-200', mark: '<span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block"></span>' },
+                done:    { cls: 'bg-gray-100 text-gray-600 border-gray-200',   mark: '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>' },
+                error:   { cls: 'bg-red-100 text-red-700 border-red-200',      mark: '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"></path></svg>' },
+                idle:    { cls: 'bg-gray-50 text-gray-400 border-gray-200',    mark: '<span class="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block"></span>' }
+            };
+            const s = map[status.type] || map.idle;
+            return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-medium border text-[11px] ${s.cls}">${s.mark}${escapeHtml(status.label)}</span>`;
+        }
+
+        // 事件徽章：日志事件类型 → 彩色小徽章（类型可读、一眼区分）
+        function eventBadgeHtml(event) {
+            const map = {
+                'ACCOUNT-END': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                'ACCOUNT-START': 'bg-blue-50 text-blue-700 border-blue-200',
+                'URL-REWARD': 'bg-indigo-50 text-indigo-700 border-indigo-200',
+                'SEARCH-BING': 'bg-cyan-50 text-cyan-700 border-cyan-200',
+                'DAILY-CHECK-IN': 'bg-amber-50 text-amber-700 border-amber-200',
+                'ERROR': 'bg-red-50 text-red-700 border-red-200',
+                'WARN': 'bg-yellow-50 text-yellow-700 border-yellow-200'
+            };
+            const cls = map[event] || 'bg-gray-100 text-gray-500 border-gray-200';
+            return `<span class="inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-semibold tracking-wide ${cls}">${escapeHtml(event || '')}</span>`;
         }
 
         // ===== 渲染：Home 面板 =====
@@ -195,14 +229,15 @@
                 return;
             }
 
+            // 今日收益最大值（渐变条宽度参照，至少 1 避免除零）
+            const todayPtsList = accounts.map(acc => todayAccountsMap[emailUser(acc.email)] || 0);
+            const maxToday = Math.max(...todayPtsList, 1);
+
             cards.innerHTML = accounts.map((acc, idx) => {
                 const log = findLogStatus(acc.email);
-                const isRunning = log && log.lastEvent === 'ACCOUNT-START' && !log.collectedPoints;
-                const statusDot = isRunning ? 'bg-green-500' : 'bg-gray-300';
-                const statusText = isRunning ? '运行中' : (log ? '已完成' : '空闲');
+                const status = getAccountStatus(log);
                 const todayPts = todayAccountsMap[emailUser(acc.email)] || 0;
                 const collected = todayPts > 0 ? `+${todayPts}` : '--';
-                const duration = log ? formatDuration(log.duration) : '--';
                 const latestMsg = log ? log.lastMessage : '暂无运行记录';
 
                 return `
@@ -212,11 +247,10 @@
                             <span class="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 font-bold text-lg flex-shrink-0">${idx + 1}</span>
                             <div class="min-w-0">
                                 <h3 class="font-bold text-gray-900 text-lg truncate">${escapeHtml(acc.email)}</h3>
-                                <p class="text-sm text-gray-500 flex items-center gap-1.5 mt-0.5">
-                                    <span class="w-2 h-2 rounded-full ${statusDot}"></span>${statusText}
-                                    <span class="text-gray-300 mx-0.5">·</span>
+                                <div class="flex items-center gap-2 mt-1.5 flex-wrap">
+                                    ${statusTagHtml(status)}
                                     <span class="text-xs text-gray-400">${escapeHtml(log ? '日志条目: ' + log.entries : '无日志')}</span>
-                                </p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -224,9 +258,11 @@
                         <div class="bg-gray-50/80 p-4 rounded-xl border border-gray-100 min-w-0">
                             <p class="text-xs text-gray-500 mb-1">今日收益</p>
                             <p class="text-2xl font-bold ${collected === '--' ? 'text-gray-400' : 'text-blue-700'}">${collected} pts</p>
+                            ${todayPts > 0 ? `<div class="mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden"><div class="stats-grad-bar h-full rounded-full" style="width:${Math.max(4, todayPts / maxToday * 100)}%"></div></div>` : ''}
                         </div>
-                        <div class="bg-blue-50/50 p-4 rounded-xl border border-blue-50">
-                            <p class="text-xs text-blue-500 mb-1">最新状态</p>
+                        <div class="bg-blue-50/50 p-4 rounded-xl border border-blue-50 min-w-0">
+                            <p class="text-xs text-blue-500 mb-1">最新动态</p>
+                            ${log ? `<div class="mb-1">${eventBadgeHtml(log.lastEvent)}</div>` : ''}
                             <p class="text-sm font-semibold text-gray-700 line-clamp-2">${escapeHtml(latestMsg)}</p>
                         </div>
                     </div>
@@ -248,17 +284,29 @@
             }
             empty.classList.add('hidden');
 
+            // 配置字段 → 完整中文文案（语言环境 / 语言代码映射，用于弱化的配置摘要行）
+            const localeName = { auto: '自动', us: '美国', gb: '英国', cn: '中国' };
+            const langName = { zh: '中文', en: '英文' };
+
             list.innerHTML = accounts.map((acc, idx) => {
                 const log = findLogStatus(acc.email);
-                const fingerprintText = [];
-                if (acc.saveFingerprint && acc.saveFingerprint.desktop) fingerprintText.push('桌面端指纹');
-                if (acc.saveFingerprint && acc.saveFingerprint.mobile) fingerprintText.push('移动端指纹');
-                const localeText = acc.geoLocale === 'auto' ? 'Auto Locale' : acc.geoLocale;
+                const status = getAccountStatus(log);
                 const proxyEnabled = acc.proxy && acc.proxy.proxyAxios;
-                const level = log ? log.lastLevel : null;
-                const statusBadge = log
-                    ? `<span class="text-[11px] px-2 py-0.5 rounded-md font-medium border border-gray-200 ${getLevelColor(level)}">最近: ${escapeHtml(log.lastEvent || '')}</span>`
-                    : '<span class="text-[11px] px-2 py-0.5 bg-gray-100 text-gray-400 rounded-md font-medium border border-gray-200">暂无运行记录</span>';
+
+                // 共性配置摘要（次要信息，弱化展示）：saveFingerprint / geoLocale / langCode 均为
+                // 账号配置属性（新增时后端默认填充），并非运行记录；不再以彩色徽章展示，
+                // 改为完整中文文案的灰色小字，避免与运行状态混淆、降低视觉噪音
+                const localeKey = String(acc.geoLocale || 'auto').toLowerCase();
+                const langKey = String(acc.langCode || 'zh').toLowerCase();
+                const fp = acc.saveFingerprint || {};
+                const fpParts = [];
+                if (fp.desktop) fpParts.push('桌面端');
+                if (fp.mobile) fpParts.push('移动端');
+                const configBits = [
+                    `语言环境：${escapeHtml(localeName[localeKey] || String(acc.geoLocale || 'auto').toUpperCase())}`,
+                    `语言：${escapeHtml(langName[langKey] || acc.langCode || 'zh')}`,
+                    `指纹：${fpParts.length ? fpParts.join(' + ') : '不保留'}`
+                ];
 
                 return `
                 <div class="bg-white p-5 rounded-2xl border border-gray-100 card-shadow flex items-center justify-between gap-4 group">
@@ -267,15 +315,16 @@
                         <div>
                             <h3 class="font-bold text-gray-900 text-lg">${escapeHtml(acc.email)}</h3>
                             <div class="flex items-center gap-2 mt-1.5 flex-wrap">
-                                ${fingerprintText.map(t => `<span class="text-[11px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded-md font-medium border border-gray-200">${t}</span>`).join('')}
-                                <span class="text-[11px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded-md font-medium border border-gray-200">${escapeHtml(localeText)}</span>
-                                ${acc.langCode ? `<span class="text-[11px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded-md font-medium border border-gray-200">lang: ${escapeHtml(acc.langCode)}</span>` : ''}
+                                ${statusTagHtml(status)}
                                 ${proxyEnabled ? '<span class="text-[11px] px-2 py-0.5 bg-green-50 text-green-600 rounded-md font-medium border border-green-100">代理</span>' : ''}
-                                ${statusBadge}
                             </div>
-                            <p class="text-xs text-gray-400 mt-1.5 truncate max-w-xl">
-                                ${log ? escapeHtml(log.lastMessage || '') : '暂无运行记录，启动任务后自动显示状态'}
-                            </p>
+                            <p class="text-[11px] text-gray-400 mt-1.5">${configBits.join(' · ')}</p>
+                            <div class="mt-1.5 flex items-start gap-1.5">
+                                ${log ? eventBadgeHtml(log.lastEvent) : ''}
+                                <p class="text-xs text-gray-500 break-words flex-1 min-w-0">
+                                    ${log ? escapeHtml(log.lastMessage || '') : '暂无运行记录，启动任务后自动显示状态'}
+                                </p>
+                            </div>
                         </div>
                     </div>
                     <div class="flex gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
@@ -444,10 +493,12 @@
                 return;
             }
             const byAccount = new Map(accountTotals.map(a => [a.account, a]));
-            // 移除已不存在的行
+            // 清理容器内的非数据行：既包括"暂无账号统计数据"占位提示（无 data-account 属性，
+            // 数据由空转有时若不清除会与真实进度条并存），也包括已从数据源移除的账号行。
+            // 保证"空状态提示"与"累计收益进度条"严格互斥显示
             [...container.children].forEach(row => {
                 const name = row.getAttribute('data-account');
-                if (name && !byAccount.has(name)) row.remove();
+                if (!name || !byAccount.has(name)) row.remove();
             });
             accountTotals.forEach((acc, i) => {
                 const width = Math.max(4, (acc.totalPoints / maxAccPoints) * 100);
@@ -717,10 +768,20 @@
         }
 
         // ===== 关闭服务 =====
+        // 防误关/误刷新导致后台进程退出（关闭服务流程中需先移除，否则 window.close() 会再弹一次确认框）
+        function handleBeforeUnload(event) {
+            event.preventDefault();
+            event.returnValue = ''; // 触发浏览器默认的离开确认弹窗
+        }
+
+        let isShuttingDown = false; // 防重入：双击/连点会连弹两次 confirm
+
         async function shutdownServer() {
+            if (isShuttingDown) return;
             if (!confirm('确定要停止服务并退出吗？')) {
                 return;
             }
+            isShuttingDown = true; // 确认后锁定，避免第二次点击再触发 confirm
 
             try {
                 const res = await fetch('/api/shutdown', { method: 'POST' });
@@ -732,6 +793,10 @@
                     } catch {}
                     throw new Error(msg);
                 }
+
+                // 用户已确认关闭：移除 beforeunload 拦截，
+                // 否则 window.close() 会再触发一次浏览器"离开此页面"确认框（双重弹窗）
+                window.removeEventListener('beforeunload', handleBeforeUnload);
 
                 // 停止轮询，避免服务退出后的失败请求刷 console
                 const overlays = document.getElementById('shutdown-overlay');
@@ -747,6 +812,26 @@
                 }
             } catch (error) {
                 alert(`❌ 关闭失败: ${error.message || error}`);
+                isShuttingDown = false; // 失败后复位，允许重试
+            }
+        }
+
+        // ===== 安装环境（运行根目录 setup 程序） =====
+        // 冲突防护：任务运行中时，setup 的构建步骤（rimraf dist + npm i）可能中断任务子进程，明确警告；
+        // 异步非阻塞：后端以独立最小化窗口执行（detached + unref），HTTP 立即返回，GUI 不卡顿
+        async function setupEnvironment() {
+            const warning = taskRunning
+                ? '⚠️ 当前有任务正在运行中！\n\n安装环境（setup 会执行构建，可能删除 dist/ 并重装依赖）\n可能中断正在运行的任务，建议先停止任务再继续。\n\n确定要继续吗？'
+                : '将运行项目根目录的 setup 程序（安装依赖并构建环境）。\n\n该过程可能耗时数分钟，将在独立最小化窗口中执行，GUI 可继续使用。\n\n确定要继续吗？';
+            if (!confirm(warning)) return;
+
+            try {
+                const res = await fetch('/api/setup', { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+                alert(`✅ ${data.message}\n\n请在独立窗口观察进度，完成前请勿重复点击。`);
+            } catch (e) {
+                alert(`❌ 启动失败: ${e.message}`);
             }
         }
 
@@ -817,6 +902,7 @@
             // 基础参数
             set('cfg-baseURL', cfg.baseURL);
             set('cfg-globalTimeout', cfg.globalTimeout);
+            set('gui-port-input', guiSettingsCache.port);
             set('cfg-headless', cfg.headless);
             set('cfg-ensureStreakProtection', cfg.ensureStreakProtection);
             set('cfg-errorDiagnostics', cfg.errorDiagnostics);
@@ -913,20 +999,25 @@
         // 串行保存链：快速连续修改时按顺序写盘，避免并发 PUT 乱序
         let configSaveChain = Promise.resolve();
 
-        // 右上角保存状态提示（短暂显示后淡出，而非瞬间消失）
+        // 保存状态提示（Toast：右下角浮动卡片，圆底图标 + 边框颜色区分成功/失败，2.5s 后自动消失）
         let configSaveStatusTimer = null;
+        const TOAST_ICONS = {
+            success: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>',
+            error: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>'
+        };
         function setConfigSaveStatus(text, isError) {
-            const el = document.getElementById('config-save-status');
-            if (!el) return;
-            el.textContent = text;
-            el.style.opacity = '1';
-            el.classList.toggle('text-green-600', !isError);
-            el.classList.toggle('text-red-600', isError);
+            const toast = document.getElementById('save-toast');
+            if (!toast) return;
+            const type = isError ? 'error' : 'success';
+            toast.setAttribute('data-type', type);
+            const icon = toast.querySelector('.toast-icon');
+            if (icon) icon.innerHTML = TOAST_ICONS[type];
+            const textEl = toast.querySelector('.toast-text');
+            if (textEl) textEl.textContent = text;
             clearTimeout(configSaveStatusTimer);
+            toast.setAttribute('data-visible', 'true'); // 200ms ease-out 进入
             configSaveStatusTimer = setTimeout(() => {
-                // opacity 200ms 淡出后再清空文本，避免文字残留闪烁
-                el.style.opacity = '0';
-                setTimeout(() => { if (el.style.opacity === '0') el.textContent = ''; }, 200);
+                toast.removeAttribute('data-visible'); // 200ms ease-out 退出
             }, 2500);
         }
 
@@ -971,6 +1062,39 @@
             return payload;
         }
 
+        // 保存 GUI 专属设置（端口等）：独立接口 /api/gui-settings，不混入脚本 config.json
+        function saveGuiSettingSilent(payload) {
+            return fetch('/api/gui-settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (!data || !data.success) throw new Error((data && data.error) || '保存失败');
+                guiSettingsCache = { ...guiSettingsCache, ...payload };
+                setConfigSaveStatus('✓ 端口已保存（重启后生效）', false);
+            })
+            .catch(error => {
+                console.error('GUI 设置保存失败:', error);
+                setConfigSaveStatus(`✗ 保存失败: ${error.message}`, true);
+            });
+        }
+
+        // 端口输入校验：1024-65535 整数，非法红框提示且不写入；合法即改即存
+        function saveGuiPort() {
+            const el = document.getElementById('gui-port-input');
+            if (!el) return;
+            const value = parseInt(el.value, 10);
+            const valid = Number.isInteger(value) && value >= 1024 && value <= 65535;
+            el.classList.toggle('border-red-500', !valid);
+            if (!valid) {
+                setConfigSaveStatus('✗ 端口需为 1024-65535 的整数', true);
+                return;
+            }
+            saveGuiSettingSilent({ port: value });
+        }
+
         // 绑定自动保存事件：checkbox 立即保存；text 输入 500ms 防抖 + 失焦兜底
         function bindAutoSaveSettings() {
             const panel = document.getElementById('panel-settings');
@@ -996,6 +1120,14 @@
                     if (payload) saveConfigSilent(payload);
                 });
             });
+
+            // GUI 本地端口（id 不带 cfg- 前缀，独立走 /api/gui-settings）：500ms 防抖 + 失焦兜底
+            const portInput = panel.querySelector('#gui-port-input');
+            if (portInput) {
+                const debouncedPortSave = debounce(saveGuiPort, 500);
+                portInput.addEventListener('input', debouncedPortSave);
+                portInput.addEventListener('change', saveGuiPort);
+            }
         }
 
         // ===== 打开配置文件 =====
@@ -1311,7 +1443,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             const navItems = document.querySelectorAll('.nav-item');
             const panels = document.querySelectorAll('.content-panel');
-            const currentTabTitle = document.getElementById('currentTabTitle');
+            const contentPanels = document.getElementById('contentPanels');
 
             navItems.forEach(item => {
                 item.addEventListener('click', (e) => {
@@ -1326,10 +1458,12 @@
                     panels.forEach(p => p.classList.add('hidden'));
                     document.getElementById(`panel-${targetTab}`).classList.remove('hidden');
 
+                    // 切换面板时重置滚动位置：避免从长页面底部切走后残留滚动，
+                    // 保证每个页面都从顶部安全边距开始展示（四个页面顶部结构一致）
+                    if (contentPanels) contentPanels.scrollTop = 0;
+
                     // 切到统计页时若图表尚未创建（面板刚变为可见），补建一次以触发正确的从 0 生长动画
                     if (targetTab === 'stats' && !statsChart) renderStats();
-
-                    currentTabTitle.innerText = item.innerText.trim();
                 });
             });
 
@@ -1352,10 +1486,8 @@
             };
 
             // 关闭/刷新页面前弹出浏览器默认的离开确认框，防止误触导致后台进程退出
-            window.addEventListener('beforeunload', (event) => {
-                event.preventDefault();
-                event.returnValue = ''; // 触发浏览器默认的离开确认弹窗
-            });
+            // （命名函数引用：关闭服务流程中需先移除，见 shutdownServer）
+            window.addEventListener('beforeunload', handleBeforeUnload);
 
             // 每 5 秒轮询任务状态（子进程日志实时更新）
             setInterval(pollTaskStatus, 5000);

@@ -69,6 +69,39 @@ function validateConfigBody(body) {
 function handleConfig(req, res, pathname, ctx) {
     const { config, http } = ctx
 
+    // GET /api/gui-settings（GUI 专属配置：端口等，存于 gui/gui-settings.json）
+    if (pathname === '/api/gui-settings' && req.method === 'GET') {
+        http.sendJson(res, 200, config.readGuiSettings())
+        return true
+    }
+
+    // PUT /api/gui-settings（保存端口，校验 1024-65535 整数；重启后生效）
+    if (pathname === '/api/gui-settings' && req.method === 'PUT') {
+        return (async () => {
+            try {
+                const body = await http.readBody(req)
+                const port = body && body.port
+                if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+                    return http.sendJson(res, 400, { error: '端口必须是 1024-65535 之间的整数' })
+                }
+                try {
+                    const target = config.writeGuiSettings({ port })
+                    console.log(`[GUI] 端口已保存: ${port} → ${target}`)
+                    return http.sendJson(res, 200, {
+                        success: true,
+                        message: '端口已保存，重启 GUI 后生效',
+                        port,
+                        file: path.basename(target)
+                    })
+                } catch (e) {
+                    return http.sendJson(res, 500, { error: `保存端口失败: ${e.message}` })
+                }
+            } catch (error) {
+                return http.sendJson(res, 400, { error: error.message || '无效请求' })
+            }
+        })()
+    }
+
     // GET /api/config
     if (pathname === '/api/config' && req.method === 'GET') {
         const c = config.readJson(config.resolveConfigPath())

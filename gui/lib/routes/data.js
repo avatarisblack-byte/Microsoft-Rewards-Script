@@ -7,7 +7,7 @@ const fs = require('fs')
 const path = require('path')
 
 function handleData(req, res, pathname, ctx) {
-    const { config, http, archive } = ctx
+    const { config, http, archive, logCache } = ctx
     const SESSIONS_ROOT = path.join(config.ROOT, 'dist', 'browser', 'sessions')
 
     // GET /api/data/export
@@ -144,6 +144,8 @@ function handleData(req, res, pathname, ctx) {
 
                 const total = imported.sessions + imported.logs + imported.accounts + imported.config
                 if (!total) return http.sendJson(res, 400, { error: '压缩包内未找到可导入的数据（需为 gui-data 导出格式或含 sessions/logs/accounts.json/config.json）' })
+                // 日志文件可能已变更：主动失效分析缓存，确保下次请求重建摘要
+                if (imported.logs > 0) logCache.invalidateCache()
                 console.log(`[GUI] 数据导入完成: sessions=${imported.sessions} logs=${imported.logs} accounts=${imported.accounts} config=${imported.config}`)
                 return http.sendJson(res, 200, { success: true, message: '数据导入完成', imported })
             } catch (error) {
