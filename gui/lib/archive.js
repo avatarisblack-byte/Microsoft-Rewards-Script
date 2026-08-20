@@ -3,6 +3,7 @@
  * 依赖：os / child_process
  */
 const os = require('os')
+const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
 
@@ -30,9 +31,14 @@ function zipDir(stageDir, zipPath) {
     })
 }
 
-/** 生成带时间戳的临时目录根路径 */
+/**
+ * 创建唯一的临时目录并返回其路径。
+ * 唯一性（2026-08-20）：原先按 `${prefix}-${Date.now()}-${pid}` 拼接，同毫秒内的并发调用会拿到
+ * 同一路径（实测 2000 次调用仅产生 11 个唯一值），并发导入/导出会互相覆盖 zip 并被对方 rmSync 删除。
+ * mkdtempSync 由内核保证唯一，且目录已创建（调用方后续 mkdirSync recursive 仍兼容）。
+ */
 function makeTmpRoot(prefix) {
-    return path.join(os.tmpdir(), `${prefix}-${Date.now()}-${process.pid}`)
+    return fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`))
 }
 
 module.exports = { unzipToDir, zipDir, makeTmpRoot }

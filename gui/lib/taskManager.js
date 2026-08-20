@@ -9,9 +9,19 @@ const { spawn } = require('child_process')
 const { ROOT } = require('./config')
 
 let taskProcess = null
+let starting = false            // 启动中标志：覆盖 spawn 同步期间的互斥
+let lastStartAt = 0             // 上次启动时刻：节流短时间内的重复启动
+const START_THROTTLE_MS = 3000  // 3s 内不允许重复启动（防重复点击 / 并发请求同时拉起多个进程）
 const taskLogBuffer = []
 const MAX_TASK_LOG_LINES = 500
 const RUN_SCRIPT = process.platform === 'win32' ? 'node.exe' : 'node'
+
+// 进程是否真正存活（2026-08-20）：
+// killed 仅表示"信号已发出"，SIGTERM 后进程最多可能再存活 10s（见 stopTask 的 SIGKILL 兜底），
+// 用 killed 判定会把仍在运行的任务误报为未运行，并允许在旧进程还活着时再启动一个
+function isRunning() {
+    return Boolean(taskProcess) && taskProcess.exitCode === null && taskProcess.signalCode === null
+}
 
 function appendTaskLog(line) {
     if (!line) return
@@ -33,9 +43,18 @@ function resolveEntryFile() {
 }
 
 function startTask() {
-    if (taskProcess && !taskProcess.killed) {
+    // 并发互斥（2026-08-20）：原先只判断 taskProcess/killed，子进程若快速退出（exit 回调把
+    // taskProcess 置 null），并发请求就能在极短时间内先后拉起多个脚本进程
+    if (starting) {
+        return { success: false, error: '任务正在启动中' }
+    }
+    if (isRunning()) {
         return { success: false, error: '任务已在运行中' }
     }
+    if (Date.now() - lastStartAt < START_THROTTLE_MS) {
+        return { success: false, error: '启动过于频繁，请稍候再试' }
+    }
+    starting = true
 
     const entryFile = resolveEntryFile()
     let args
@@ -57,6 +76,7 @@ function startTask() {
             stdio: ['pipe', 'pipe', 'pipe']
         })
     } catch (error) {
+        starting = false
         appendTaskLog(`[GUI] 启动失败: ${error.message}`)
         return { success: false, error: `启动失败: ${error.message}` }
     }
@@ -89,11 +109,13 @@ function startTask() {
         taskProcess = null
     })
 
+    starting = false
+    lastStartAt = Date.now()
     return { success: true, message: '任务已启动' }
 }
 
 function stopTask() {
-    if (!taskProcess || taskProcess.killed) {
+    if (!isRunning()) {
         return { success: false, error: '没有正在运行的任务' }
     }
 
@@ -105,13 +127,15 @@ function stopTask() {
 
         // 10 秒后仍未退出则强制 SIGKILL
         setTimeout(() => {
-            if (taskProcess && !taskProcess.killed) {
+            if (isRunning()) {
                 appendTaskLog('[GUI] 10秒内未正常退出，强制 SIGKILL')
                 console.warn('[GUI] 10秒内未正常退出，强制 SIGKILL')
                 taskProcess.kill('SIGKILL')
             }
         }, 10000).unref()
 
+        // 显式停止是用户明确意图：重置启动节流，允许立即重新启动
+        lastStartAt = 0
         return { success: true, message: '停止信号已发送' }
     } catch (error) {
         return { success: false, error: `停止失败: ${error.message}` }
@@ -120,7 +144,7 @@ function stopTask() {
 
 function getTaskStatus() {
     return {
-        running: Boolean(taskProcess && !taskProcess.killed),
+        running: isRunning(),
         pid: taskProcess ? taskProcess.pid : null,
         startedAt: null,
         log: taskLogBuffer.slice(-100)

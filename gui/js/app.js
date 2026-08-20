@@ -14,10 +14,11 @@
         function escapeHtml(str) {
             if (!str) return '';
             return String(str)
-                .replace(/&/g, '&')
-                .replace(/</g, '<')
-                .replace(/>/g, '>')
-                .replace(/"/g, '"');
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         }
 
         async function fetchJson(url) {
@@ -330,15 +331,27 @@
                         </div>
                     </div>
                     <div class="flex gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onclick="openAccountSettings('${escapeHtml(acc.email)}')" class="btn-icon btn-icon-primary" title="详细设置">
+                        <button type="button" data-action="settings" data-email="${escapeHtml(acc.email)}" class="btn-icon btn-icon-primary" title="详细设置">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                         </button>
-                        <button onclick="deleteAccount('${escapeHtml(acc.email)}')" class="btn-icon btn-icon-danger" title="删除">
+                        <button type="button" data-action="delete" data-email="${escapeHtml(acc.email)}" class="btn-icon btn-icon-danger" title="删除">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                         </button>
                     </div>
                 </div>`;
             }).join('');
+
+            // 事件委托（2026-08-20）：替代原 onclick="fn('${email}')" 内联拼接。
+            // HTML 属性值会先做实体解码、再作为 JS 源码解析，所以把 ' 转成 &#39; 并不能阻止注入，
+            // 必须彻底避免把用户数据拼进内联脚本。用 onclick 直接赋值（而非 addEventListener）
+            // 保证每次重渲染不会叠加监听器。
+            list.onclick = e => {
+                const btn = e.target.closest('button[data-action][data-email]');
+                if (!btn) return;
+                const email = btn.dataset.email;
+                if (btn.dataset.action === 'settings') openAccountSettings(email);
+                else if (btn.dataset.action === 'delete') deleteAccount(email);
+            };
         }
 
         // ===== 渲染：Stats 面板（Chart.js 趋势图） =====

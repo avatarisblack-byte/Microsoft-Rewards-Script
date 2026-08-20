@@ -6,9 +6,20 @@ const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
 
+// 顶层字段白名单（来源：src/config.example.json 的顶层键）。
+// 语义是白名单而非黑名单：PUT 走 { ...current, ...body } 合并写回，未列入的字段会直接落盘
+// 污染脚本配置。新增配置项时需同步此处。
+const ALLOWED_TOP_LEVEL = new Set([
+    'baseURL', 'sessionPath', 'headless', 'clusters', 'errorDiagnostics', 'ensureStreakProtection',
+    'workers', 'searchOnBingLocalQueries', 'globalTimeout', 'searchSettings', 'debugLogs',
+    'consoleLogFilter', 'proxy', 'webhook'
+])
+
 // 宽松校验：布尔/字符串字段类型检查，返回错误数组
 function validateConfigBody(body) {
     const errors = []
+    const unknown = Object.keys(body).filter(k => !ALLOWED_TOP_LEVEL.has(k))
+    if (unknown.length) errors.push(`不支持的配置字段: ${unknown.join('、')}`)
     for (const f of ['headless', 'ensureStreakProtection', 'errorDiagnostics', 'debugLogs', 'searchOnBingLocalQueries']) {
         if (body[f] !== undefined && typeof body[f] !== 'boolean') errors.push(`${f} 必须是布尔值`)
     }
@@ -131,6 +142,9 @@ function handleConfig(req, res, pathname, ctx) {
                 try { fs.copyFileSync(configPath, backupPath) } catch (e) {
                     return http.sendJson(res, 500, { error: `备份 config.json 失败: ${e.message}` })
                 }
+                // 空值保护（2026-08-20）：config.json 缺少 searchSettings 键时，
+                // 原先直接读 current.searchSettings.chinaApi 会抛 TypeError，导致整次配置保存失败
+                const curSS = current.searchSettings || {}
                 const merged = {
                     ...current, ...body,
                     ...(body.workers ? { workers: { ...(current.workers || {}), ...body.workers } } : {}),
@@ -139,10 +153,10 @@ function handleConfig(req, res, pathname, ctx) {
                     ...(body.searchSettings
                         ? {
                               searchSettings: {
-                                  ...(current.searchSettings || {}), ...body.searchSettings,
-                                  ...(body.searchSettings.chinaApi ? { chinaApi: { ...(current.searchSettings.chinaApi || {}), ...body.searchSettings.chinaApi } } : {}),
-                                  ...(body.searchSettings.searchDelay ? { searchDelay: { ...(current.searchSettings.searchDelay || {}), ...body.searchSettings.searchDelay } } : {}),
-                                  ...(body.searchSettings.readDelay ? { readDelay: { ...(current.searchSettings.readDelay || {}), ...body.searchSettings.readDelay } } : {})
+                                  ...curSS, ...body.searchSettings,
+                                  ...(body.searchSettings.chinaApi ? { chinaApi: { ...(curSS.chinaApi || {}), ...body.searchSettings.chinaApi } } : {}),
+                                  ...(body.searchSettings.searchDelay ? { searchDelay: { ...(curSS.searchDelay || {}), ...body.searchSettings.searchDelay } } : {}),
+                                  ...(body.searchSettings.readDelay ? { readDelay: { ...(curSS.readDelay || {}), ...body.searchSettings.readDelay } } : {})
                               }
                           }
                         : {})

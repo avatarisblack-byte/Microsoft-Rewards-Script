@@ -45,13 +45,18 @@ function handleAccounts(req, res, pathname, ctx) {
     if (pathname === '/api/accounts' && req.method === 'GET') {
         const accounts = config.readJson(config.resolveAccountsPath())
         if (!accounts) { http.sendJson(res, 500, { error: '无法读取 accounts.json' }); return true }
+        // 脏数据防御（2026-08-20）：非数组内容、缺失/非字符串 email 曾使下方 map 抛 TypeError，
+        // 异常逃逸到 server 分发层会终止整个 GUI 进程
+        if (!Array.isArray(accounts)) {
+            http.sendJson(res, 500, { error: 'accounts.json 内容格式异常（应为数组）' }); return true
+        }
         const logSummary = ctx.logCache.getCachedData().accountSummary
         const logMap = {}
         for (const s of logSummary) logMap[s.account] = s
-        const enriched = accounts.map(a => ({
-            ...a,
-            status: logMap[a.email.split('@')[0]] || { account: a.email.split('@')[0], entries: 0 }
-        }))
+        const enriched = accounts.map(a => {
+            const user = (typeof a?.email === 'string' ? a.email : '').split('@')[0]
+            return { ...a, status: logMap[user] || { account: user, entries: 0 } }
+        })
         http.sendJson(res, 200, { accounts: enriched, logSummary })
         return true
     }

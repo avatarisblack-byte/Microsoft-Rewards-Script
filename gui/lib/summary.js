@@ -40,24 +40,28 @@ function summarizeLogs(entries) {
         acc.lastLevel = e.level
         acc.lastMessage = e.message
 
+        // 容错（2026-08-20）：残缺条目（日志格式演进 / 第三方导入）可能没有 message 字段，
+        // 直接调用 e.message.match 会抛 TypeError 并冒泡到接口层
+        const msg = e.message || ''
+
         if (e.event === 'ACCOUNT-END') {
-            const t = e.message.match(/总计:\s*\+(\d+)/)
-            const i = e.message.match(/原始:\s*(\d+)\s*→/)
-            const f = e.message.match(/→\s*新值:\s*(\d+)/)
+            const t = msg.match(/总计:\s*\+(\d+)/)
+            const i = msg.match(/原始:\s*(\d+)\s*→/)
+            const f = msg.match(/→\s*新值:\s*(\d+)/)
             // 同一天多次运行：收益累加；原始积分保留第一次，新值保留最后一次
             if (t) acc.collectedPoints = (acc.collectedPoints || 0) + parseInt(t[1], 10)
             if (i && acc.initialPoints === null) acc.initialPoints = parseInt(i[1], 10)
             if (f) acc.finalPoints = parseInt(f[1], 10)
-        } else if (e.event === 'URL-REWARD' && e.message.includes('完成UrlReward')) {
-            const g = e.message.match(/获得积分=(\d+)/)
-            const n = e.message.match(/新余额=(\d+)/)
+        } else if (e.event === 'URL-REWARD' && msg.includes('完成UrlReward')) {
+            const g = msg.match(/获得积分=(\d+)/)
+            const n = msg.match(/新余额=(\d+)/)
             if (g) acc.collectedFromLastRun = parseInt(g[1], 10)
             if (n) acc.latestBalance = parseInt(n[1], 10)
-        } else if (e.event === 'SEARCH-BING' && e.message.includes('获得积分')) {
-            const g = e.message.match(/获得积分=(\d+)/)
+        } else if (e.event === 'SEARCH-BING' && msg.includes('获得积分')) {
+            const g = msg.match(/获得积分=(\d+)/)
             if (g) acc.searchPoints = (acc.searchPoints || 0) + parseInt(g[1], 10)
-        } else if (e.event === 'DAILY-CHECK-IN' && e.message.includes('完成每日签到')) {
-            const g = e.message.match(/获得积分=(\d+)/)
+        } else if (e.event === 'DAILY-CHECK-IN' && msg.includes('完成每日签到')) {
+            const g = msg.match(/获得积分=(\d+)/)
             if (g) acc.checkInPoints = parseInt(g[1], 10)
         }
     }

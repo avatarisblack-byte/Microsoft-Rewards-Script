@@ -77,7 +77,12 @@ function handleSystem(req, res, pathname, ctx) {
     }
 
     // GET /api/stats | /api/summary（日志统计摘要：读预生成缓存，新鲜则零解析成本）
+    // 方法校验（2026-08-20）：读接口不应响应写方法
     if (pathname === '/api/stats' || pathname === '/api/summary') {
+        if (req.method !== 'GET') {
+            http.sendJson(res, 405, { error: `仅支持 GET ${pathname}` })
+            return true
+        }
         http.sendJson(res, 200, logCache.getCachedData().summary)
         return true
     }
@@ -85,6 +90,10 @@ function handleSystem(req, res, pathname, ctx) {
     // GET /api/keepalive（SSE 长连接保活 + 静默期优雅降级）
     // 连接计数：支持多标签页/刷新时的并行连接；仅当所有连接都断开才进入静默期倒计时
     if (pathname === '/api/keepalive') {
+        if (req.method !== 'GET') {
+            http.sendJson(res, 405, { error: '仅支持 GET /api/keepalive' })
+            return true
+        }
         res.writeHead(200, {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',

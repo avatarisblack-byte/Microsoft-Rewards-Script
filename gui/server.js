@@ -30,16 +30,38 @@ const ctx = { config, http: httpUtils, validator, logger, summary, archive, task
 const routes = [rStatic, rConfig, rAccounts, rSessions, rData, rTasks, rLogs, rSystem]
 
 // ===== HTTP 服务：按序分发，未命中返回 404 =====
+// 异常兜底（2026-08-20）：路由内未捕获的异常若逃逸到这里，会成为进程级 uncaughtException
+// 直接终止 GUI 服务（脏 accounts.json、缓存目录被占位等场景均可触发）。统一转 500 响应，服务保持存活。
 const server = http.createServer((req, res) => {
-    const url = new URL(req.url, `http://localhost:${config.PORT}`)
-    const pathname = url.pathname
-    for (const route of routes) {
-        if (route(req, res, pathname, ctx)) return
-    }
-    // 防御：若某路由已发送响应但返回了 falsy（未遵守「返回 true=已处理」契约），
-    // 跳过 404 兜底，避免对已结束的 res 二次 writeHead 抛 ERR_HTTP_HEADERS_SENT 导致进程崩溃
-    if (!res.writableEnded) {
-        httpUtils.sendJson(res, 404, { error: `未知接口: ${pathname}` })
+    let pathname = req.url
+    try {
+        pathname = new URL(req.url, `http://localhost:${config.PORT}`).pathname
+        for (const route of routes) {
+            const handled = route(req, res, pathname, ctx)
+            if (handled) {
+                // 异步路由（async IIFE）返回 Promise：补 reject 兜底，
+                // 避免未处理拒绝 + 客户端永久挂起
+                if (typeof handled.then === 'function') {
+                    handled.catch(err => {
+                        console.error(`[GUI] 异步路由异常 ${pathname}:`, err)
+                        if (!res.writableEnded) {
+                            httpUtils.sendJson(res, 500, { error: `服务器内部错误: ${err.message}` })
+                        }
+                    })
+                }
+                return
+            }
+        }
+        // 防御：若某路由已发送响应但返回了 falsy（未遵守「返回 true=已处理」契约），
+        // 跳过 404 兜底，避免对已结束的 res 二次 writeHead 抛 ERR_HTTP_HEADERS_SENT 导致进程崩溃
+        if (!res.writableEnded) {
+            httpUtils.sendJson(res, 404, { error: `未知接口: ${pathname}` })
+        }
+    } catch (err) {
+        console.error(`[GUI] 请求处理异常 ${pathname}:`, err)
+        if (!res.writableEnded) {
+            httpUtils.sendJson(res, 500, { error: `服务器内部错误: ${err.message}` })
+        }
     }
 })
 

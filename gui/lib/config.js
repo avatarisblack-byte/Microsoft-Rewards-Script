@@ -27,10 +27,13 @@ function readGuiSettings() {
     return readJson(GUI_SETTINGS_FILE) || {}
 }
 
+// 合并写入（2026-08-20）：调用方只传变更项（如 { port }），原实现整体覆盖文件会静默清除
+// gui-settings.json 中的其他设置
 function writeGuiSettings(settings) {
+    const merged = { ...readGuiSettings(), ...settings }
     // 备份 .bak（文件不存在时忽略）
     try { fs.copyFileSync(GUI_SETTINGS_FILE, GUI_SETTINGS_FILE + '.bak') } catch {}
-    fs.writeFileSync(GUI_SETTINGS_FILE, JSON.stringify(settings, null, 4) + '\n', 'utf-8')
+    fs.writeFileSync(GUI_SETTINGS_FILE, JSON.stringify(merged, null, 4) + '\n', 'utf-8')
     return GUI_SETTINGS_FILE
 }
 

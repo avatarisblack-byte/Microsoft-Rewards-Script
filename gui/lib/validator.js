@@ -11,8 +11,16 @@ function validateAccountShape(acc) {
 
     const errors = []
 
+    // email 边界校验（2026-08-20）：原先只检查类型与是否含 @，超长、含控制字符或 HTML 片段的
+    // 邮箱都能落盘 accounts.json，进而被脚本读取、写进日志行（破坏日志解析）并回显到前端
     if (typeof acc.email !== 'string' || !acc.email.includes('@')) {
         errors.push('email 必须是非空邮箱字符串')
+    } else if (acc.email.length > 254) {
+        errors.push('email 长度不能超过 254 个字符 (RFC 5321)')
+    } else if (/[\s\u0000-\u001F\u007F]/.test(acc.email)) {
+        errors.push('email 不能包含空白或控制字符')
+    } else if (/[<>"'`&]/.test(acc.email)) {
+        errors.push('email 不能包含 < > " \' ` & 等特殊字符')
     }
     if (typeof acc.password !== 'string') {
         errors.push('password 必须是字符串')
@@ -37,7 +45,7 @@ function validateAccountShape(acc) {
     } else {
         if (typeof p.proxyAxios !== 'boolean') errors.push('proxy.proxyAxios 必须是布尔值')
         if (typeof p.url !== 'string') errors.push('proxy.url 必须是字符串')
-        if (typeof p.port !== 'number' || !Number.isFinite(p.port)) errors.push('proxy.port 必须是数字')
+        if (typeof p.port !== 'number' || !Number.isInteger(p.port) || p.port < 0 || p.port > 65535) errors.push('proxy.port 必须是 0-65535 之间的整数')
         if (typeof p.username !== 'string') errors.push('proxy.username 必须是字符串')
         if (typeof p.password !== 'string') errors.push('proxy.password 必须是字符串')
     }

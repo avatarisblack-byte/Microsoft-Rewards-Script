@@ -9,7 +9,12 @@ function handleLogs(req, res, pathname, ctx) {
     const { config, http, logger, archive, summary, logCache } = ctx
 
     // GET /api/logs（文件列表）
+    // 方法校验（2026-08-20）：原先任意方法都会命中读取分支
     if (pathname === '/api/logs') {
+        if (req.method !== 'GET') {
+            http.sendJson(res, 405, { error: '仅支持 GET /api/logs' })
+            return true
+        }
         const files = logger.listLogFiles()
         http.sendJson(res, 200, { files, logsDir: config.LOGS_DIR })
         return true

@@ -73,12 +73,31 @@ function invalidateCache() {
     try { fs.rmSync(CACHE_FILE, { force: true }) } catch {}
 }
 
-// 接口层统一入口：新鲜则读缓存，否则重建后返回
-function getCachedData() {
-    if (isCacheFresh()) {
-        return JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'))
+// 缓存不可用时的空摘要：结构与 generateCache 的 payload 一致，供接口层降级返回
+function emptyPayload() {
+    const now = new Date().toISOString()
+    return {
+        generatedAt: now,
+        logFiles: [],
+        summary: { generatedAt: now, daily: [], accountTotals: [], grandTotal: 0, todayTotal: 0 },
+        accountSummary: []
     }
-    return generateCache()
+}
+
+// 接口层统一入口：新鲜则读缓存，否则重建后返回
+// 异常兜底（2026-08-20）：缓存是性能优化，不应成为可用性单点。缓存目录被同名文件占位、
+// 磁盘写满、权限不足时 mkdir/write/rename 会抛异常；而 /api/stats 与 /api/accounts 是同步调用，
+// 异常会逃逸到 server 分发层终止 GUI 进程，故此处降级为空摘要 + 告警。
+function getCachedData() {
+    try {
+        if (isCacheFresh()) {
+            return JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'))
+        }
+        return generateCache()
+    } catch (e) {
+        console.warn(`[GUI] 日志摘要缓存不可用，返回空摘要: ${e.message}`)
+        return emptyPayload()
+    }
 }
 
 module.exports = { getCachedData, generateCache, isCacheFresh, invalidateCache, CACHE_FILE }
