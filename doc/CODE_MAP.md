@@ -9,7 +9,7 @@
 | `src/` | 主脚本（TypeScript v3.1.6.4）：Microsoft Rewards 积分自动化（patchright 浏览器 + 指纹注入 + Cheerio 解析 + 多进程集群） |
 | `gui/` | 控制面板（零依赖 Node 服务 + 原生前端）：浏览器可视化管理账号/配置/统计/任务 |
 | `scripts/` | 运维脚本：Docker 容器、macOS 启动、浏览器 Session 管理 CLI |
-| `test/` | 日志解析与统计的交叉对拍测试 |
+| `test/` | 测试：①日志解析与统计的交叉对拍测试；②GUI 全链路自动化测试（单元/接口/容错，`node:test` 零依赖 + tmp 沙箱隔离） |
 | `doc/` | 文档系统（本文件为入口） |
 
 ---
@@ -21,30 +21,33 @@
 | 文件 | 职责 |
 |------|------|
 | `gui/design-reference.html` | 控制面板前端页面（HTML 结构 + Tailwind CDN + Chart.js CDN，样式与逻辑已拆分至 css/ js/；含首次打开"环境安装"提示弹窗） |
-| `gui/server.js` | 入口（≈59 行）：组装 ctx → 按序调用 lib/routes/ 各路由 → `--generate-summary` CLI → listen（2026-08-18 重构） |
-| `gui/lib/config.js` | 常量（PORT/ROOT/GUI_DIR/HTML_FILE/LOGS_DIR）+ resolveAccountsPath/resolveConfigPath/readJson（2026-08-18 新增） |
-| `gui/lib/httpUtils.js` | sendJson / sendText / readBody（100MB 上限）（2026-08-18 新增） |
-| `gui/lib/validator.js` | validateAccountShape（账号结构校验，与 src/util/Validator.ts 字段规则对齐）（2026-08-18 新增） |
-| `gui/lib/logger.js` | parseLogLine / listLogFiles / readLogFile（2026-08-18 新增） |
-| `gui/lib/summary.js` | summarizeLogs / summarizeAllLogs / generateSummary / writeSummaryFile；收益口径：ACCOUNT-END 累加 + 本地时区日期键 + todayTotal（2026-08-18/19 新增） |
-| `gui/lib/archive.js` | unzipToDir / zipDir / makeTmpRoot（PowerShell/unzip 跨平台零依赖压缩解压）（2026-08-18 新增） |
-| `gui/lib/taskManager.js` | startTask / stopTask / getTaskStatus（子进程 spawn node dist/index.js，SIGTERM→10s SIGKILL 兜底，500 行环形日志缓冲）（2026-08-18 新增） |
+| `gui/server.js` | 入口（≈59 行）：组装 ctx → 按序调用 lib/routes/ 各路由 → `--generate-summary` CLI → listen（2026-08-18 重构）；分发层包 try/catch 并为异步路由的 Promise 补 catch，路由内逃逸的异常统一转 500，不再成为 uncaughtException 终止进程（2026-08-20 加固） |
+| `gui/lib/config.js` | 常量（PORT/ROOT/GUI_DIR/HTML_FILE/LOGS_DIR）+ resolveAccountsPath/resolveConfigPath/readJson（2026-08-18 新增）；writeGuiSettings 改为与现有设置合并写入（整体覆盖会清除 gui-settings.json 中的非端口设置）（2026-08-20 修复） |
+| `gui/lib/httpUtils.js` | sendJson / sendText / readBody（100MB 上限）（2026-08-18 新增）；readBody 补 aborted/close 监听 + 30s 超时并用 settled 标志只结算一次（客户端断网时原 Promise 永不 settle，请求体内存无法释放），sendJson 的 JSON.stringify 包 try/catch 降级 500（序列化抛错会让 res 永不 end）（2026-08-20 加固） |
+| `gui/lib/validator.js` | validateAccountShape（账号结构校验，与 src/util/Validator.ts 字段规则对齐）（2026-08-18 新增）；email 补长度 ≤254（RFC 5321）、禁空白/控制字符、禁 `< > " ' \` &`（畸形邮箱会写进 accounts.json、破坏日志行结构并回显前端），proxy.port 收紧为 0-65535 整数（2026-08-20 加固） |
+| `gui/lib/logger.js` | parseLogLine / listLogFiles / readLogFile（2026-08-18 新增）；parseLogLine 解析前剥离行尾 `\r`（JS 正则的 `.` 不匹配 `\r`，CRLF 日志会被整行丢弃导致统计归零），readLogFile 以 `YYYY-MM-DD` 白名单校验并自动补 `.log` 后缀（原先按日期查询恒返回空，且 dateStr 可穿越目录）（2026-08-20 修复） |
+| `gui/lib/summary.js` | summarizeLogs / summarizeAllLogs / generateSummary / writeSummaryFile；收益口径：ACCOUNT-END 累加 + 本地时区日期键 + todayTotal（2026-08-18/19 新增）；summarizeLogs 取 `e.message \|\| ''` 后再匹配，残缺条目不再抛 TypeError（2026-08-20 加固） |
+| `gui/lib/archive.js` | unzipToDir / zipDir / makeTmpRoot（PowerShell/unzip 跨平台零依赖压缩解压）（2026-08-18 新增）；makeTmpRoot 改用 `fs.mkdtempSync`（原 `Date.now()+pid` 拼接在同毫秒并发下会撞同一目录，导入/导出互相覆盖 zip 并删对方目录）（2026-08-20 修复） |
+| `gui/lib/taskManager.js` | startTask / stopTask / getTaskStatus（子进程 spawn node dist/index.js，SIGTERM→10s SIGKILL 兜底，500 行环形日志缓冲）（2026-08-18 新增）；运行判定改用 `exitCode/signalCode`（`killed` 仅表示信号已发出，SIGTERM 后进程最多再存活 10s），启动加 `starting` 互斥 + 3s 节流，避免并发请求/重复点击先后拉起多个脚本进程（2026-08-20 加固） |
+| `gui/lib/logCache.js` | 日志摘要缓存：getCachedData / generateCache / isCacheFresh / invalidateCache，缓存文件 `gui/cache/account-summary.json`；用「文件名+大小+mtime」集合快照判定新鲜度（导入的 zip 解压会保留旧 mtime，单一"最新 mtime"判定会漏掉新导入日志），tmp+rename 原子写入；读取/重建异常降级为空摘要（缓存是性能优化，不应成为可用性单点）（2026-08-19 新增 / 2026-08-20 补异常兜底） |
 | `gui/lib/routes/static.js` | 静态页 + `/css/*` `/js/*` 分发（防路径穿越黑名单）（2026-08-18 新增） |
-| `gui/lib/routes/config.js` | 配置 CRUD：GET/PUT `/api/config`、POST `/api/config/reset`、POST `/api/config/open`（2026-08-18 新增） |
-| `gui/lib/routes/accounts.js` | 账号 CRUD：GET/POST `/api/accounts`、PUT/DELETE `/api/accounts/:email`（.bak 备份+回滚）（2026-08-18 新增） |
-| `gui/lib/routes/logs.js` | 日志：GET `/api/logs`、导出/导入 zip、GET `/api/logs/:date`、GET `/api/logs/summary`（2026-08-18 新增） |
+| `gui/lib/routes/config.js` | 配置 CRUD：GET/PUT `/api/config`、POST `/api/config/reset`、POST `/api/config/open`（2026-08-18 新增）；合并写回时对 `current.searchSettings` 做空值保护（缺该键时读 `.chinaApi` 会抛 TypeError 使保存整体失败）（2026-08-20 修复）；顶层字段改白名单校验（`ALLOWED_TOP_LEVEL`，来源 src/config.example.json 的 14 个顶层键，新增配置项需同步），未知字段返回 400 而非落盘污染 config.json（2026-08-20 加固） |
+| `gui/lib/routes/accounts.js` | 账号 CRUD：GET/POST `/api/accounts`、PUT/DELETE `/api/accounts/:email`（.bak 备份+回滚）（2026-08-18 新增）；GET 分支校验数组结构与 email 类型，避免脏 accounts.json 触发 TypeError 终止进程（2026-08-20 加固） |
+| `gui/lib/routes/logs.js` | 日志：GET `/api/logs`、导出/导入 zip、GET `/api/logs/:date`、GET `/api/logs/summary`（2026-08-18 新增）；GET `/api/logs` 校验 req.method 返回 405（2026-08-20 加固） |
 | `gui/lib/routes/sessions.js` | Session zip 导入/导出（白名单 session_*.json + 防穿越 + .bak）（2026-08-18 新增） |
 | `gui/lib/routes/data.js` | 一键数据导入/导出（sessions+logs+accounts.json+config.json 打包恢复）（2026-08-18 新增） |
-| `gui/lib/routes/tasks.js` | 任务：POST `/api/start`、POST `/api/stop`、GET `/api/task`（2026-08-18 新增） |
-| `gui/lib/routes/system.js` | 系统：POST `/api/shutdown`、GET `/api/stats`/`/api/summary`、GET `/api/keepalive`（SSE 保活）（2026-08-18 新增） |
+| `gui/lib/routes/tasks.js` | 任务：POST `/api/start`、POST `/api/stop`、GET `/api/task`（2026-08-18 新增）；三个接口均校验 req.method 并对非法方法返回 405（原先仅判断 pathname，GET 即可启停脚本子进程）（2026-08-20 加固） |
+| `gui/lib/routes/system.js` | 系统：POST `/api/shutdown`、GET `/api/stats`/`/api/summary`、GET `/api/keepalive`（SSE 保活）（2026-08-18 新增）；三个读接口校验 req.method 返回 405（2026-08-20 加固） |
 | `gui/start-gui.bat` | 一键启动（常规模式）：**纯 ASCII（无中文，避免任何代码页乱码）**：`cd /d %~dp0` → node 读取 `gui-settings.json` 端口注入 `PORT`（失败回退 3000）→ 校验 server.js → ping 延迟 ~1s → CMD 原生 `start "" http://localhost:%PORT%` 开浏览器（**无 PowerShell**）→ 当前窗口前台跑 `node server.js`（日志窗口） |
 | `gui/start-gui-silent.vbs` | 静默启动（WScript.Shell 窗口模式 0 隐藏 CMD 后台跑 start-gui.bat，零窗口零 PowerShell）（2026-08-17 新增） |
 | `gui/stop-gui.bat` | 按端口（默认 3000）查 PID 并 taskkill /f 停止，避免误杀其他 Node 脚本；端口读取用 node（与 start 一致，无 PowerShell）（2026-08-17 新增） |
 | `gui/README.md` | GUI 专属用户文档（2026-08-17 新增；2026-08-20 全面重写） |
+| `gui/CHANGELOG.md` | GUI 变更记录（2026-08-20 从 `doc/CODE_MAP.md`「变更记录」章节分离，13 条）：因 GUI 迭代频繁、条目长，混在项目级变更记录中会淹没 src/scripts 的改动；新增 GUI 条目一律写在此处，仓库级/非 GUI 改动仍写 CODE_MAP |
+| `gui/TEST_REPORT.md` | GUI 自动化测试与缺陷修复报告（2026-08-20 新增）：记录 `test/gui/` 测试套件的设计决策（tmp 沙箱隔离、直调路由判定崩溃、劫持 process.exit 测生命周期）、三阶段结果对比（109→126→138 通过 / 140）、18 项缺陷的根因与修复对照、逐文件覆盖率、两轮浏览器真机验证结论、遗留风险与后续建议。定位问题时可据此快速判断某模块是否已有回归守护 |
 | `gui/css/main.css` | 公共样式：卡片阴影/滚动条/图表占位 + 按钮组件类（.btn 家族）+ 弹窗/开关/进度条动效 + reduced-motion 降级（2026-08-19/20 扩充） |
 | `gui/css/animations.css` | 图表容器辅助样式（user-select 禁用、加载占位骨架） |
 | `gui/js/animator.js` | Chart.js 动画工具：chartAnimOptions（x 锚定 + y 从 0 生长）+ smoothUpdateChart（保留当前高度过渡，显式 400ms，reduced-motion 0ms）（2026-08-20 收敛时长） |
-| `gui/js/app.js` | 前端核心交互逻辑（加载/渲染/任务/导入导出/弹窗/SSE 保活/全局配置即时保存/首次打开提示持久化） |
+| `gui/js/app.js` | 前端核心交互逻辑（加载/渲染/任务/导入导出/弹窗/SSE 保活/全局配置即时保存/首次打开提示持久化）；escapeHtml 恢复真实 HTML 实体转义（原实现四个 replace 的替换目标与源字符相同 → 等同未转义，配合 innerHTML 渲染构成存储型 XSS），账号卡片按钮改 `data-email` + 事件委托（HTML 属性先实体解码再作 JS 解析，内联 onclick 拼接用户数据无法靠转义防注入）（2026-08-20 安全修复） |
 | `gui/summary.json` | `--generate-summary` CLI 生成的持久化统计产物（不入库） |
 | `gui/gui-settings.json` | GUI 专属设置（端口等，与脚本核心 config.json 隔离）：`/api/gui-settings` 读写、start/stop-gui.bat 启动时动态读取（2026-08-20 纳入 CodeMap） |
 
@@ -202,9 +205,21 @@
 
 ## 测试
 
+项目无测试框架依赖（`package.json` 无 `test` 脚本、无 Jest/Vitest）。两套测试均零依赖：
+
+- 日志对拍测试：`node test/script/run-log-tests.js`（**需先准备 `test/data/`，该目录被 .gitignore 排除**）
+- GUI 自动化测试：`node --test --test-isolation=none test/gui/unit.test.js test/gui/api.test.js test/gui/resilience.test.js`
+  （必须加 `--test-isolation=none`：`node --test` 默认为每个测试文件 spawn 子进程，受限环境会 EPERM；同进程模式亦是覆盖率采集前提）
+- 覆盖率：`$env:NODE_V8_COVERAGE="$env:TEMP\gui-cov"` 跑上述命令后 `node test/gui/coverage-report.js "$env:TEMP\gui-cov"`
+
 | 文件 | 职责 |
 |------|------|
 | `test/script/run-log-tests.js` | 日志导入（解析）+ 分析（统计）测试：`node test/script/run-log-tests.js`，零依赖（node:assert），数据源 `test/data/logs-20260819-125022/`（7 份日志）；含独立参考实现（split 法解析 + 逐账户聚合）与被测 `logger.js`/`summary.js` 交叉对拍，动态生成期望值（2026-08-19 新增） |
+| `test/gui/helpers/sandbox.js` | GUI 测试基础设施：把 `gui/` 复制到 `os.tmpdir()` 沙箱并伪造 `config.json`/`accounts.json`/`logs/`/`src/*.example.json`（**因 `lib/config.js` 用 `__dirname` 推导 ROOT，只能靠同构目录实现隔离**，从而保证仓库文件零改动）；含跨时区稳定的日志夹具（3 天/251 分）、进程内启服务（劫持 `http.createServer` 捕获实例以便可靠 close）、HTTP 助手、手写 store 模式 zip 生成器（CRC32，用于导入与 zip slip 用例） |
+| `test/gui/unit.test.js` | 49 用例：`validator`（异常输入/边界值）、`httpUtils`（100MB 上限/断连/循环引用）、`logger`（CRLF/超长行/穿越）、`summary`（统计口径/脏数据）、`archive`（tmp 唯一性/压缩往返）、`logCache`（新鲜度快照/损坏重建） |
+| `test/gui/api.test.js` | 73 用例：25 个 HTTP 接口的正常/边界/异常输入 + 方法校验 + zip 导入导出与 zip slip 防护 + 并发压力（50 并发读、20 并发写、10 并发新增账号、客户端中断、8MB 大包） |
+| `test/gui/resilience.test.js` | 18 用例：脏数据下的异常逃逸（直调路由判定"是否会终止进程"）、服务端 500 降级、前端 `escapeHtml`/`fetchJson` 提取后实测、SSE 静默期与 `/api/shutdown` 生命周期（劫持 `process.exit` 观测，不真正退出） |
+| `test/gui/coverage-report.js` | 覆盖率聚合：内置 `--experimental-test-coverage` 只统计 cwd 内文件（沙箱在 tmp 下故为空），本脚本解析 `NODE_V8_COVERAGE` 原始数据并把沙箱路径映射回 `gui/` 源文件，多沙箱取并集输出 Markdown 表 |
 
 ## 根目录配置
 
@@ -220,18 +235,9 @@
 
 ## 变更记录
 
+> GUI（`gui/`）相关的变更记录已于 2026-08-20 分离至 **`gui/CHANGELOG.md`**（含启动脚本、前端动效、收益口径、GUI 测试套件等 13 条）。
+> 本表仅记录仓库级 / 非 GUI 的改动。
+
 | 日期 | 内容 |
 |------|------|
-| 2026-08-20 | **启动脚本重构：彻底消除 PowerShell 窗口（两种无感启动模式）**：①`start-gui.bat`（常规模式）——端口读取由 PowerShell 改为 `node -e`（node 必装、冷启动 ~200ms 远快于 PowerShell ~1s；JS 内避免 `\|&\<\>` 特殊字符以安全嵌入 for/f 反引号）；浏览器拉起由 `powershell -Command "Start-Sleep 3; Start-Process URL"` 改为 **CMD 原生 `start "" http://localhost:%PORT%`**（零 PowerShell 零黑框闪现）；硬编码 3 秒延迟改为 `ping -n 2 127.0.0.1` 约 1s 缓冲（不依赖 stdin，隐藏窗口/静默模式下 timeout 不可用，故弃用）；②`start-gui-silent.vbs`（静默模式）——保持 `shell.Run "start-gui.bat", 0, False` 隐藏 CMD，配合无 PowerShell 的 bat 实现**完全零窗口**；③`stop-gui.bat` 端口读取同步改为 node 并补 `cd /d "%~dp0"`。实测：常规模式端口正确显示（gui-settings.json=3006）、浏览器正常唤起；静默模式 cscript 执行成功、用户运行中的服务不受影响 |
-| 2026-08-20 | **首次打开"环境安装"提示弹窗**：`gui/design-reference.html` 新增 `modal-env-setup`（完全复用既有 modal-root 模式：header 图标+标题+X、正文提示"请先安装环境，再执行其他操作"、"不再提示"复选框、btn-primary 确认按钮，250ms ease-out 进出动画 + reduced-motion 降级自动继承）；`gui/js/app.js` 新增 `ENV_SETUP_DISMISS_KEY` 常量 + DOMContentLoaded 内"勾选即写/取消即删 localStorage、无标记才 openModal"逻辑（浏览器实测：首次弹出 ✓、勾选确认后刷新不再弹 ✓）。浏览器 localStorage 持久化，无后端改动 |
-| 2026-08-20 | **GUI 端口链路核查 + 文档同步**：全链路实测验证——GUI 保存端口（`PUT /api/gui-settings`）→ `gui/gui-settings.json` → start-gui.bat 动态读取注入 `PORT` → `lib/config.js` `resolvePort()` → server.js 监听与命令行显示一致（实测 gui-settings.json=3004 时启动日志显示 `http://localhost:3004`，含空格路径下 bat 解析亦正常）；代码无需改动（历史端口 3003 为旧版残留值，见 gui-settings.json.bak）。文档同步：目录表补 `gui/gui-settings.json`、接口表补 `GET/PUT /api/gui-settings`、start-gui.bat 与「端口配置」设计决策改为 gui-settings.json 动态读取描述 |
-| 2026-08-20 | **CodeMap 全面同步**：gui 模块补全（lib/routes/ 8 路由拆行、summary.json、动效说明），"原有模块（参考）"扩写为完整 src/ 架构（browser/functions/interface/logging/util 五层），新增 scripts/ 与根目录配置小节，追加 GUI 前端动效规范设计决策 |
-| 2026-08-20 | **GUI 前端动效优化（emil-design-eng / review-animations 规范落地）**：①弹窗进出对称动画——打开 opacity+scale(0.96)→1（250ms ease-out，`data-open` 属性 + 双 rAF 触发，替代原 10ms setTimeout 纯淡入），关闭先播退出动画再 display:none（transitionend + 300ms 兜底，`_closing` 防快速开关竞态）；②开关组件——滑块 `after:transition-all`→`after:transition-transform duration-200 ease-out`（消除 `transition: all` 硬性违规），轨道颜色补 `.toggle-track` 150ms ease 过渡；③收益进度条——`transition-all duration-500` + innerHTML 全量重绘（过渡永不生效、宽度瞬跳）改为 DOM diff 更新 + `transform: scaleX`（transform-origin:left，400ms ease-out，GPU 合成属性）；④面板切换 160ms 极轻淡入（tens/天高频克制档，不做过位移动画）；⑤图表动画——animator.js 首次生长 600ms→400ms、smoothUpdateChart 显式 `update({duration:400})`（原 Chart.js 默认 1000ms 拖沓）、reduced-motion 0ms；⑥`animate-ping`/面板/遮罩/保存提示/代理字段禁用态补齐 reduced-motion 或过渡；⑦日志自动滚动仅在用户接近底部时触发。涉及文件：`gui/css/main.css`、`gui/js/app.js`、`gui/js/animator.js`、`gui/design-reference.html` |
-| 2026-08-19 | **新增日志导入/分析测试脚本**：`test/script/run-log-tests.js` 用 `test/data/logs-20260819-125022/`（logs-20260819-125022.zip 解压）跑 logger/summary 全流程测试。首次运行 31 项断言全部通过（解析 6551 行/过滤 555 异常行；每日收益 204/113/233/189/142/447/208；accountTotals 与独立参考实现完全一致）。期间测试脚本自身修过 3 处 bug（详见 commit 历史），被测代码零改动。验证了 08-14 同一天两次运行 ACCOUNT-END 累加 = 113、08-15/08-16 未完成账户走活动积分兜底（101/112）、08-19 无 ACCOUNT-END 兜底 208（2026-08-19） |
-| 2026-08-19 | **仪表盘总览收益口径修正（累计收益 vs 账户余额）**：`gui/lib/summary.js` 修复收益统计两处 bug——①同一账号同一天多次运行 ACCOUNT-END `总计` 由"覆盖"改为"累加"（`summarizeLogs` 与 `generateSummary` 同步修正），此前只统计最后一次运行导致收益被低估；②统计日期由"UTC 时间戳切片"改为按本地时区换算（`toLocalDateKey`），修复跨 UTC 日界时"今日收益"偏差；`generateSummary` 新增 `todayTotal`（本地时区今日收益）。`gui/design-reference.html` 首页顶部收益卡标题改"今日收益 / 总收益"（原"今日总收益 / 总积分"右侧实为账户余额），统计页"今日收益"卡副标题同步更新。`gui/js/app.js`：新增 `statsCache`，`loadData` 并行拉取 `/api/stats`（30s 轮询已存在），`renderHome` 顶部卡改为读 `todayTotal`/`grandTotal`（脚本执行带来的收益，移除旧余额汇总逻辑），账号卡片"今日收益"改为今日多账号/多次运行累计；`renderStats` 优先用 `statsCache` 减少重复请求，今日收益改用后端 `todayTotal`。日志分析链路（`logger.js` 解析 → `summary.js` 聚合 → routes 分发）经核查拆分合理、无循环依赖，正则与 Logger.ts 输出格式完全匹配（2026-08-19） |
-| 2026-08-19 | **GUI 按钮配色优化（设计系统化，方案 B）**：`gui/css/main.css` 新增按钮组件类（`.btn` 基础 + `.btn-dark` 启动任务深色 CTA / `.btn-primary` 蓝色主操作 / `.btn-danger` 红色紧急 / `.btn-secondary` 白底描边次级 / `.btn-danger-ghost` 红字描边次级危险 / `.btn-ghost` 中性描边取消 / `.btn-icon` 图标按钮）；统一按压反馈 `:active scale(0.97)`（emil-design-eng 原则）、`:focus-visible` 焦点环（WCAG 2.4.7）、hover 加深、`prefers-reduced-motion` 降级；`gui/design-reference.html` 约 22 处静态按钮与 `gui/js/app.js` 账号卡片 2 处动态图标按钮全部替换为组件类；`app.js` 中 3 处依赖旧类名的 JS 选择器同步更新（`#panel-settings .btn-danger-ghost` / `#modal-add-account .btn-primary` / `#modal-account-settings .btn-primary`）。设计决策：实心灰次级按钮→白色描边按钮（降低层级，突出蓝色主操作）；红色等重→分级（停止任务=红色实心紧急操作，关闭服务/重置默认=红色描边可逆操作）（2026-08-19） |
-| 2026-08-19 | GUI 全局设置改为**即时保存**：移除右上角"保存全部配置"按钮；`gui/js/app.js` 新增 `CONFIG_FIELD_MAP` 字段映射表 + `saveConfigSilent` 增量提交（checkbox 立即保存、text 输入 500ms 防抖）+ 串行链防并发乱序 + 右上角"已自动保存/保存失败"状态提示；成功后用后端合并结果更新 `configCache` 避免 30s 重渲染覆盖；后端 `PUT /api/config` 本身是合并写回，零后端改动（2026-08-19） |
-| 2026-08-19 | `gui/design-reference.html` 仪表盘标题区（"仪表盘总览 / 账户汇总与任务运行状态"）距顶部常驻栏距离与其他页面统一：根因是 `#contentPanels` 的 `space-y-8` 仅对非首个面板生效，导致仪表盘（首个 `panel-home`）少了 32px；修复为给 `panel-home` 加 `mt-8`，与其他页面统一为 64px |
-| 2026-08-19 | `gui/design-reference.html` 导入/导出图标方向统一：**导出朝上（`m-4-8l-4-4m0 0L8 8m4-4v12`）、导入朝下（`m-4-4l-4 4m0 0L8 12m4 4V4`）**。涉及仪表盘数据、Session、日志三组六个按钮 |
-| 2026-08-19 | `start-gui.bat` 修复：曾试 `chcp 65001`，但代码页切换期缓冲错位仍会啃掉后续中文行（报 `'澶勶紙server.js'`），最终**改为纯 ASCII**（英文注释/提示），任何代码页解析一致，从根上消除乱码；端口统一为 3000（start-gui / stop-gui / 文档同步）。`start-gui-silent.vbs` 注释改纯 ASCII，与编码无关 |
 | 2026-08-19 | `.gitignore` 再调整（检查报告确认）：①删除 `/.agents` 规则——`.agents/skills/rewards-server-actions/` 技能文件与 `skills-lock.json` 需保留追踪，原忽略规则与现状矛盾；②`Microsoft-Rewards-Script.rar` 改通用 `*.rar`；③新增 `scripts/mac/mac的运行脚本`（中文名说明文件，`git rm --cached` 移出索引，本地保留）、`更新同步原项目.txt`（本地 git 命令备忘，同上）、`test/data/`（测试日志含真实邮箱，不提交） |
