@@ -1,0 +1,291 @@
+/**
+ * GUI 容错性、异常恢复与生命周期测试
+ *
+ * 运行：node --test --test-isolation=none test/gui/resilience.test.js
+ *
+ * 两种验证方式：
+ *   1. 直调路由处理函数（同步路径）：可精确断言「异常是否逃逸出路由层」。
+ *      server.js 的分发循环没有 try/catch，逃逸的异常在真实运行中会成为
+ *      未捕获异常并终止整个 GUI 进程，因此 doesNotThrow 是等价的崩溃判定。
+ *   2. 真实 HTTP 请求：验证错误场景下的响应码与服务存活。
+ *
+ * 生命周期用例会劫持 process.exit（记录而不真正退出），劫持不再恢复，
+ * 以避免静默期残留定时器在测试收尾阶段终止测试进程。
+ */
+const { test, describe, before, after } = require('node:test')
+const assert = require('node:assert')
+const fs = require('node:fs')
+const path = require('node:path')
+
+const H = require('./helpers/sandbox')
+
+let SB = null
+let srv = null
+let BASE = ''
+let ctx = null
+let routeAccounts = null
+let routeSystem = null
+
+const ACCOUNTS = () => path.join(SB, 'accounts.json')
+const CONFIG = () => path.join(SB, 'config.json')
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+function mockRes() {
+    return {
+        statusCode: null,
+        headers: null,
+        body: null,
+        writableEnded: false,
+        writeHead(code, headers) { this.statusCode = code; this.headers = headers; return this },
+        write() { return true },
+        end(body) { this.body = body; this.writableEnded = true; return this },
+        on() { return this },
+    }
+}
+
+before(async () => {
+    SB = H.createSandbox('resilience')
+    // 注意：gui/lib/config.js 在首次 require 时即固化 PORT，
+    // 因此必须先设置 PORT 再加载任何 gui 模块，否则会回落到 gui-settings.json 的 3000 端口。
+    const port = H.pickPort()
+    process.env.PORT = String(port)
+    ctx = {
+        config: H.loadGuiModule(SB, 'lib/config'),
+        http: H.loadGuiModule(SB, 'lib/httpUtils'),
+        validator: H.loadGuiModule(SB, 'lib/validator'),
+        logger: H.loadGuiModule(SB, 'lib/logger'),
+        summary: H.loadGuiModule(SB, 'lib/summary'),
+        archive: H.loadGuiModule(SB, 'lib/archive'),
+        taskManager: H.loadGuiModule(SB, 'lib/taskManager'),
+        logCache: H.loadGuiModule(SB, 'lib/logCache'),
+    }
+    routeAccounts = H.loadGuiModule(SB, 'lib/routes/accounts')
+    routeSystem = H.loadGuiModule(SB, 'lib/routes/system')
+    srv = H.startServerInProcess(SB, port)
+    BASE = srv.base
+    await H.waitForServer(BASE)
+})
+
+after(async () => {
+    if (srv) await srv.close()
+    H.removeSandbox(SB)
+})
+
+// ============ 脏数据导致的异常逃逸（等价于进程崩溃） ============
+describe('R-X 脏数据下的异常逃逸（逃逸 = 真实运行中 GUI 进程崩溃）', () => {
+    const goodAccounts = () => fs.writeFileSync(ACCOUNTS(), JSON.stringify([H.fixtureAccount()], null, 4), 'utf-8')
+
+    test('R-X01 accounts.json 中存在缺少 email 字段的条目时 GET /api/accounts 不得抛出异常', () => {
+        fs.writeFileSync(ACCOUNTS(), JSON.stringify([{ password: 'x', geoLocale: 'auto' }], null, 4), 'utf-8')
+        const res = mockRes()
+        try {
+            assert.doesNotThrow(() => routeAccounts({ method: 'GET' }, res, '/api/accounts', ctx))
+        } finally {
+            goodAccounts()
+        }
+    })
+
+    test('R-X02 accounts.json 内容为对象（非数组）时 GET /api/accounts 不得抛出异常', () => {
+        fs.writeFileSync(ACCOUNTS(), JSON.stringify({ email: 'a@b.com' }, null, 4), 'utf-8')
+        const res = mockRes()
+        try {
+            assert.doesNotThrow(() => routeAccounts({ method: 'GET' }, res, '/api/accounts', ctx))
+        } finally {
+            goodAccounts()
+        }
+    })
+
+    test('R-X03 accounts.json 中 email 为非字符串时 GET /api/accounts 不得抛出异常', () => {
+        fs.writeFileSync(ACCOUNTS(), JSON.stringify([{ email: 12345, password: 'x' }], null, 4), 'utf-8')
+        const res = mockRes()
+        try {
+            assert.doesNotThrow(() => routeAccounts({ method: 'GET' }, res, '/api/accounts', ctx))
+        } finally {
+            goodAccounts()
+        }
+    })
+
+    test('R-X04 accounts.json 为损坏 JSON 时返回 500 且不抛异常（既有容错正确性）', () => {
+        fs.writeFileSync(ACCOUNTS(), '{ broken json', 'utf-8')
+        const res = mockRes()
+        try {
+            assert.doesNotThrow(() => routeAccounts({ method: 'GET' }, res, '/api/accounts', ctx))
+            assert.strictEqual(res.statusCode, 500)
+        } finally {
+            goodAccounts()
+        }
+    })
+
+    test('R-X05 缓存目录被同名文件占位时 GET /api/stats 不得抛出异常', () => {
+        const cacheDir = path.dirname(ctx.logCache.CACHE_FILE)
+        fs.rmSync(cacheDir, { recursive: true, force: true })
+        fs.writeFileSync(cacheDir, 'occupied', 'utf-8')
+        const res = mockRes()
+        try {
+            assert.doesNotThrow(() => routeSystem({ method: 'GET' }, res, '/api/stats', ctx))
+        } finally {
+            fs.rmSync(cacheDir, { force: true })
+            fs.mkdirSync(cacheDir, { recursive: true })
+        }
+    })
+})
+
+// ============ 服务端错误场景的 HTTP 容错 ============
+describe('R-E 服务端错误场景容错', () => {
+    test('R-E01 accounts.json 非数组时 POST 返回 500 且服务存活', async () => {
+        const backup = fs.readFileSync(ACCOUNTS(), 'utf-8')
+        fs.writeFileSync(ACCOUNTS(), JSON.stringify({ not: 'array' }), 'utf-8')
+        try {
+            const r = await H.request(BASE, '/api/accounts', { method: 'POST', json: { email: 'x@y.com', password: 'p' } })
+            assert.strictEqual(r.status, 500)
+            assert.match(r.json.error, /格式异常/)
+        } finally {
+            fs.writeFileSync(ACCOUNTS(), backup, 'utf-8')
+        }
+    })
+
+    test('R-E02 accounts.json 非数组时 DELETE 返回 500 且服务存活', async () => {
+        const backup = fs.readFileSync(ACCOUNTS(), 'utf-8')
+        fs.writeFileSync(ACCOUNTS(), JSON.stringify({ not: 'array' }), 'utf-8')
+        try {
+            const r = await H.request(BASE, '/api/accounts/x%40y.com', { method: 'DELETE' })
+            assert.strictEqual(r.status, 500)
+        } finally {
+            fs.writeFileSync(ACCOUNTS(), backup, 'utf-8')
+        }
+    })
+
+    test('R-E03 config.json 损坏时 GET /api/config 返回 500', async () => {
+        const backup = fs.readFileSync(CONFIG(), 'utf-8')
+        fs.writeFileSync(CONFIG(), '{ broken', 'utf-8')
+        try {
+            const r = await H.request(BASE, '/api/config')
+            assert.strictEqual(r.status, 500)
+            assert.match(r.json.error, /无法读取/)
+        } finally {
+            fs.writeFileSync(CONFIG(), backup, 'utf-8')
+        }
+    })
+
+    test('R-E04 logs 目录整体缺失时日志与统计接口降级为空结果', async () => {
+        const logsDir = path.join(SB, 'logs')
+        const stash = path.join(SB, 'logs-stash')
+        fs.renameSync(logsDir, stash)
+        try { fs.rmSync(ctx.logCache.CACHE_FILE, { force: true }) } catch { /* 忽略 */ }
+        try {
+            const list = await H.request(BASE, '/api/logs')
+            assert.strictEqual(list.status, 200)
+            assert.deepStrictEqual(list.json.files, [])
+
+            const stats = await H.request(BASE, '/api/stats')
+            assert.strictEqual(stats.status, 200)
+            assert.strictEqual(stats.json.grandTotal, 0)
+
+            const sum = await H.request(BASE, '/api/logs/summary')
+            assert.strictEqual(sum.status, 200)
+            assert.deepStrictEqual(sum.json.entries, [])
+        } finally {
+            fs.rmSync(logsDir, { recursive: true, force: true })
+            fs.renameSync(stash, logsDir)
+            try { fs.rmSync(ctx.logCache.CACHE_FILE, { force: true }) } catch { /* 忽略 */ }
+        }
+    })
+
+    test('R-E05 空 accounts.json 数组时 GET /api/accounts 正常返回空列表', async () => {
+        const backup = fs.readFileSync(ACCOUNTS(), 'utf-8')
+        fs.writeFileSync(ACCOUNTS(), '[]', 'utf-8')
+        try {
+            const r = await H.request(BASE, '/api/accounts')
+            assert.strictEqual(r.status, 200)
+            assert.deepStrictEqual(r.json.accounts, [])
+        } finally {
+            fs.writeFileSync(ACCOUNTS(), backup, 'utf-8')
+        }
+    })
+})
+
+// ============ 前端脚本的行为审查（提取真实函数执行） ============
+describe('R-F 前端脚本容错与输出编码', () => {
+    const appSource = () => fs.readFileSync(path.join(SB, 'gui', 'js', 'app.js'), 'utf-8')
+
+    function extractFunction(source, name) {
+        const start = source.indexOf(`function ${name}(`)
+        assert.notStrictEqual(start, -1, `未找到函数 ${name}`)
+        const end = source.indexOf('\n        }', start)
+        assert.notStrictEqual(end, -1, `未定位到函数 ${name} 的结束位置`)
+        const code = source.slice(start, end + '\n        }'.length)
+        return new Function(`${code}; return ${name};`)()
+    }
+
+    test('R-F01 escapeHtml 必须真正转义 HTML 元字符【期望依据：账号邮箱与日志消息通过 innerHTML 拼接渲染，未转义即存储型 XSS】', () => {
+        const escapeHtml = extractFunction(appSource(), 'escapeHtml')
+        const out = escapeHtml('<img src=x onerror=alert(1)>')
+        assert.ok(!out.includes('<'), `escapeHtml 未转义 <，输出: ${out}`)
+        assert.ok(!out.includes('>'), `escapeHtml 未转义 >，输出: ${out}`)
+        assert.strictEqual(escapeHtml('a&b'), 'a&amp;b')
+        assert.strictEqual(escapeHtml('"q"'), '&quot;q&quot;')
+    })
+
+    test('R-F02 escapeHtml 应处理单引号【期望依据：单引号包裹的属性上下文下的深度防御；内联 onclick 拼接已于 2026-08-20 改为事件委托】', () => {
+        const escapeHtml = extractFunction(appSource(), 'escapeHtml')
+        const out = escapeHtml("a');alert(1);//")
+        assert.ok(!out.includes("'"), `单引号未被转义，输出: ${out}`)
+    })
+
+    test('R-F03 fetchJson 应具备请求超时/中止保护【期望依据：断网或服务端无响应时 fetch 永不 settle，界面停留在加载态且 30s 轮询持续堆积】', () => {
+        const src = appSource()
+        const start = src.indexOf('async function fetchJson(')
+        const body = src.slice(start, src.indexOf('\n        }', start))
+        assert.match(body, /AbortSignal|AbortController|timeout|signal/i, `fetchJson 无超时保护，实现为: ${body.replace(/\s+/g, ' ')}`)
+    })
+
+    test('R-F04 轮询应避免请求堆积（失败退避或并发保护）【期望依据：setInterval 固定 5s/30s 触发，慢响应或持续失败时请求会无限叠加】', () => {
+        const src = appSource()
+        assert.match(src, /clearInterval|inFlight|isLoading|pending|backoff/i, '未发现任何轮询并发保护或退避机制')
+    })
+})
+
+// ============ 生命周期：keepalive 静默期与 shutdown ============
+describe('R-L 生命周期与静默期（劫持 process.exit 观测）', () => {
+    let exitCalls = []
+    let liveController = null
+
+    before(() => {
+        exitCalls = []
+        // 劫持后不再恢复：静默期定时器可能在测试收尾阶段触发
+        process.exit = code => { exitCalls.push(code === undefined ? 0 : code) }
+    })
+
+    test('R-L01 SSE 保活连接可正常建立', async () => {
+        liveController = new AbortController()
+        const res = await fetch(`${BASE}/api/keepalive`, { signal: liveController.signal })
+        assert.strictEqual(res.status, 200)
+        assert.match(res.headers.get('content-type') || '', /text\/event-stream/)
+    })
+
+    test('R-L02 页面刷新（断开后 2s 内重连）不应触发服务退出', async () => {
+        liveController.abort()
+        await sleep(2000)
+        assert.deepStrictEqual(exitCalls, [], `静默期未结束即退出: ${JSON.stringify(exitCalls)}`)
+        liveController = new AbortController()
+        const res = await fetch(`${BASE}/api/keepalive`, { signal: liveController.signal })
+        assert.strictEqual(res.status, 200)
+        await sleep(500)
+        assert.deepStrictEqual(exitCalls, [], '重连后仍触发了退出')
+    })
+
+    test('R-L03 所有保活连接断开超过 5s 静默期后触发服务退出', async () => {
+        liveController.abort()
+        await sleep(6500)
+        assert.deepStrictEqual(exitCalls, [0], `静默期结束未按预期退出: ${JSON.stringify(exitCalls)}`)
+    })
+
+    test('R-L04 POST /api/shutdown 先响应成功再退出进程', async () => {
+        exitCalls = []
+        const r = await H.request(BASE, '/api/shutdown', { method: 'POST' })
+        assert.strictEqual(r.status, 200)
+        assert.strictEqual(r.json.success, true)
+        await sleep(800)
+        assert.deepStrictEqual(exitCalls, [0], '未在响应后触发退出')
+    })
+})
