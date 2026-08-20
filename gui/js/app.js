@@ -1121,12 +1121,14 @@
                 });
             });
 
-            // GUI 本地端口（id 不带 cfg- 前缀，独立走 /api/gui-settings）：500ms 防抖 + 失焦兜底
+            // GUI 本地端口（id 不带 cfg- 前缀，独立走 /api/gui-settings）：
+            // input 与 change 共用同一防抖函数——输入后失焦/回车时两个事件只会合并触发一次保存，
+            // 避免对 /api/gui-settings 重复 PUT（后端重复打印"端口已保存"）
             const portInput = panel.querySelector('#gui-port-input');
             if (portInput) {
                 const debouncedPortSave = debounce(saveGuiPort, 500);
                 portInput.addEventListener('input', debouncedPortSave);
-                portInput.addEventListener('change', saveGuiPort);
+                portInput.addEventListener('change', debouncedPortSave);
             }
         }
 

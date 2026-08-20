@@ -16,6 +16,15 @@ for /f "tokens=5" %%i in ('netstat -ano ^| findstr ":%PORT_TO_KILL%" ^| findstr 
     echo [GUI] 结束进程 PID %%i （端口 %PORT_TO_KILL%）
     taskkill /f /pid %%i >nul 2>&1
 )
+:: 兜底：服务可能启动于默认端口而配置文件后来被修改（改端口后未重启即停止），
+:: 此时配置文件端口上无进程、旧服务仍在默认端口监听——再尝试清理默认端口 3000，
+:: 避免旧服务残留占用端口导致"改端口重启后依然占用旧端口"
+if not "%PORT_TO_KILL%"=="3000" (
+    for /f "tokens=5" %%i in ('netstat -ano ^| findstr ":3000" ^| findstr "LISTENING"') do (
+        echo [GUI] 结束进程 PID %%i （端口 3000 兜底）
+        taskkill /f /pid %%i >nul 2>&1
+    )
+)
 
 echo.
 echo [完成] 已尝试停止端口 %PORT_TO_KILL% 上的服务。
