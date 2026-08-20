@@ -51,7 +51,7 @@
 双击 gui/start-gui-silent.vbs
 ```
 
-VBS 会以隐藏窗口形式调用 `start-gui.bat`，浏览器 3 秒后自动打开 **http://localhost:3000**。
+VBS 会以隐藏窗口形式调用 `start-gui.bat`（零窗口、零 PowerShell），服务后台运行并自动唤起浏览器打开面板。
 
 > ⚠️ 静默模式隐藏了窗口，无法用 Ctrl+C 停止服务；请使用 `stop-gui.bat` 或面板右上角"关闭服务"。
 
@@ -176,8 +176,8 @@ Microsoft-Rewards-Script 控制台已启动: http://localhost:3000
 gui/
 ├── design-reference.html      # 前端页面（HTML 结构 + Tailwind/Chart.js CDN）
 ├── server.js                  # 服务入口：组装 ctx + 路由分发 + --generate-summary CLI
-├── start-gui.bat              # 一键启动（纯 ASCII，自动读取 gui-settings.json 端口）
-├── start-gui-silent.vbs       # 静默后台启动
+├── start-gui.bat              # 一键启动（常规模式：CMD 日志窗口，node 读端口，CMD start 开浏览器，无 PowerShell）
+├── start-gui-silent.vbs       # 静默启动（零窗口，隐藏 CMD 后台运行）
 ├── stop-gui.bat               # 按端口精准停止
 ├── gui-settings.json          # GUI 专属设置（端口等，start/stop-gui.bat 动态读取）
 ├── summary.json               # --generate-summary CLI 产物（日志统计快照）
@@ -231,7 +231,7 @@ gui/
 <details>
 <summary><b>浏览器没自动打开？</b></summary>
 
-`start-gui.bat` 会延迟 3 秒用 PowerShell 打开浏览器。若未弹出：
+`start-gui.bat` 会先启动服务（node 冷启动约 0.3s），随后用系统默认浏览器打开页面（CMD 原生 `start` 命令，无 PowerShell 窗口）。若未弹出：
 手动访问 `http://localhost:3000`，确认命令行窗口输出的端口号一致。
 
 </details>

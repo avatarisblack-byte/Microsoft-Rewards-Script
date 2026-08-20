@@ -1,7 +1,7 @@
-' ===== Silent start of Microsoft Rewards GUI service =====
-' Runs start-gui.bat via WScript.Shell with a hidden window (window mode 0).
-' Double-click this file to start the service without a CMD black box;
-' the browser will open automatically.
+' ===== Silent start of Microsoft Rewards GUI service (Silent Mode) =====
+' Hides the console window (window mode 0) and runs start-gui.bat in the background.
+' start-gui.bat no longer spawns PowerShell: the browser is opened with the native
+' CMD "start" command, so no extra black window appears. Result: zero windows.
 ' NOTE: comments are ASCII-only so this file is encoding-independent.
 
 Set shell = CreateObject("WScript.Shell")

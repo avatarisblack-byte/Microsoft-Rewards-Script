@@ -1,13 +1,14 @@
 @echo off
 title Stop Microsoft Rewards GUI Server
 chcp 65001 >nul
+cd /d "%~dp0"
 
 echo ================================================
 echo   正在停止 Microsoft Rewards GUI 服务...
 echo ================================================
 
-:: 停止端口配置：从 gui-settings.json 读取（与 start-gui.bat 保持一致），默认 3000
-for /f "usebackq delims=" %%p in (`powershell -NoProfile -Command "Get-Content -Raw '%~dp0gui-settings.json' -ErrorAction SilentlyContinue | ConvertFrom-Json -ErrorAction SilentlyContinue | Select-Object -ExpandProperty port"`) do set "PORT_TO_KILL=%%p"
+:: 停止端口配置：用 node 读取（与 start-gui.bat 保持一致，无 PowerShell），默认 3000
+for /f "usebackq delims=" %%p in (`node -e "try{var s=require('./gui-settings.json');console.log(typeof s.port=='number'? s.port:'')}catch(e){}"`) do set "PORT_TO_KILL=%%p"
 if "%PORT_TO_KILL%"=="" set PORT_TO_KILL=3000
 
 :: 按端口精准清理：查找监听 PORT_TO_KILL 的 PID 并强制结束

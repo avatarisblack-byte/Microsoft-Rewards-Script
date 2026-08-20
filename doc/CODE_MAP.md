@@ -37,9 +37,9 @@
 | `gui/lib/routes/data.js` | 一键数据导入/导出（sessions+logs+accounts.json+config.json 打包恢复）（2026-08-18 新增） |
 | `gui/lib/routes/tasks.js` | 任务：POST `/api/start`、POST `/api/stop`、GET `/api/task`（2026-08-18 新增） |
 | `gui/lib/routes/system.js` | 系统：POST `/api/shutdown`、GET `/api/stats`/`/api/summary`、GET `/api/keepalive`（SSE 保活）（2026-08-18 新增） |
-| `gui/start-gui.bat` | 一键启动脚本：**纯 ASCII（无中文，避免任何代码页乱码）**：`cd /d %~dp0` → PowerShell 从 `gui-settings.json` 动态读取端口注入 `PORT`（读取失败回退 3000）→ 校验 server.js → 3 秒后 PowerShell 开浏览器 → 当前窗口跑 `node server.js` |
-| `gui/start-gui-silent.vbs` | 静默启动（WScript.Shell 隐藏窗口跑 start-gui.bat）（2026-08-17 新增） |
-| `gui/stop-gui.bat` | 按端口（默认 3000）查 PID 并 taskkill /f 停止，避免误杀其他 Node 脚本（2026-08-17 新增） |
+| `gui/start-gui.bat` | 一键启动（常规模式）：**纯 ASCII（无中文，避免任何代码页乱码）**：`cd /d %~dp0` → node 读取 `gui-settings.json` 端口注入 `PORT`（失败回退 3000）→ 校验 server.js → ping 延迟 ~1s → CMD 原生 `start "" http://localhost:%PORT%` 开浏览器（**无 PowerShell**）→ 当前窗口前台跑 `node server.js`（日志窗口） |
+| `gui/start-gui-silent.vbs` | 静默启动（WScript.Shell 窗口模式 0 隐藏 CMD 后台跑 start-gui.bat，零窗口零 PowerShell）（2026-08-17 新增） |
+| `gui/stop-gui.bat` | 按端口（默认 3000）查 PID 并 taskkill /f 停止，避免误杀其他 Node 脚本；端口读取用 node（与 start 一致，无 PowerShell）（2026-08-17 新增） |
 | `gui/README.md` | GUI 专属用户文档（2026-08-17 新增；2026-08-20 全面重写） |
 | `gui/css/main.css` | 公共样式：卡片阴影/滚动条/图表占位 + 按钮组件类（.btn 家族）+ 弹窗/开关/进度条动效 + reduced-motion 降级（2026-08-19/20 扩充） |
 | `gui/css/animations.css` | 图表容器辅助样式（user-select 禁用、加载占位骨架） |
@@ -222,6 +222,7 @@
 
 | 日期 | 内容 |
 |------|------|
+| 2026-08-20 | **启动脚本重构：彻底消除 PowerShell 窗口（两种无感启动模式）**：①`start-gui.bat`（常规模式）——端口读取由 PowerShell 改为 `node -e`（node 必装、冷启动 ~200ms 远快于 PowerShell ~1s；JS 内避免 `\|&\<\>` 特殊字符以安全嵌入 for/f 反引号）；浏览器拉起由 `powershell -Command "Start-Sleep 3; Start-Process URL"` 改为 **CMD 原生 `start "" http://localhost:%PORT%`**（零 PowerShell 零黑框闪现）；硬编码 3 秒延迟改为 `ping -n 2 127.0.0.1` 约 1s 缓冲（不依赖 stdin，隐藏窗口/静默模式下 timeout 不可用，故弃用）；②`start-gui-silent.vbs`（静默模式）——保持 `shell.Run "start-gui.bat", 0, False` 隐藏 CMD，配合无 PowerShell 的 bat 实现**完全零窗口**；③`stop-gui.bat` 端口读取同步改为 node 并补 `cd /d "%~dp0"`。实测：常规模式端口正确显示（gui-settings.json=3006）、浏览器正常唤起；静默模式 cscript 执行成功、用户运行中的服务不受影响 |
 | 2026-08-20 | **首次打开"环境安装"提示弹窗**：`gui/design-reference.html` 新增 `modal-env-setup`（完全复用既有 modal-root 模式：header 图标+标题+X、正文提示"请先安装环境，再执行其他操作"、"不再提示"复选框、btn-primary 确认按钮，250ms ease-out 进出动画 + reduced-motion 降级自动继承）；`gui/js/app.js` 新增 `ENV_SETUP_DISMISS_KEY` 常量 + DOMContentLoaded 内"勾选即写/取消即删 localStorage、无标记才 openModal"逻辑（浏览器实测：首次弹出 ✓、勾选确认后刷新不再弹 ✓）。浏览器 localStorage 持久化，无后端改动 |
 | 2026-08-20 | **GUI 端口链路核查 + 文档同步**：全链路实测验证——GUI 保存端口（`PUT /api/gui-settings`）→ `gui/gui-settings.json` → start-gui.bat 动态读取注入 `PORT` → `lib/config.js` `resolvePort()` → server.js 监听与命令行显示一致（实测 gui-settings.json=3004 时启动日志显示 `http://localhost:3004`，含空格路径下 bat 解析亦正常）；代码无需改动（历史端口 3003 为旧版残留值，见 gui-settings.json.bak）。文档同步：目录表补 `gui/gui-settings.json`、接口表补 `GET/PUT /api/gui-settings`、start-gui.bat 与「端口配置」设计决策改为 gui-settings.json 动态读取描述 |
 | 2026-08-20 | **CodeMap 全面同步**：gui 模块补全（lib/routes/ 8 路由拆行、summary.json、动效说明），"原有模块（参考）"扩写为完整 src/ 架构（browser/functions/interface/logging/util 五层），新增 scripts/ 与根目录配置小节，追加 GUI 前端动效规范设计决策 |
