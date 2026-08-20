@@ -20,7 +20,7 @@
 
 | 文件 | 职责 |
 |------|------|
-| `gui/design-reference.html` | 控制面板前端页面（HTML 结构 + Tailwind CDN + Chart.js CDN，样式与逻辑已拆分至 css/ js/） |
+| `gui/design-reference.html` | 控制面板前端页面（HTML 结构 + Tailwind CDN + Chart.js CDN，样式与逻辑已拆分至 css/ js/；含首次打开"环境安装"提示弹窗） |
 | `gui/server.js` | 入口（≈59 行）：组装 ctx → 按序调用 lib/routes/ 各路由 → `--generate-summary` CLI → listen（2026-08-18 重构） |
 | `gui/lib/config.js` | 常量（PORT/ROOT/GUI_DIR/HTML_FILE/LOGS_DIR）+ resolveAccountsPath/resolveConfigPath/readJson（2026-08-18 新增） |
 | `gui/lib/httpUtils.js` | sendJson / sendText / readBody（100MB 上限）（2026-08-18 新增） |
@@ -37,15 +37,16 @@
 | `gui/lib/routes/data.js` | 一键数据导入/导出（sessions+logs+accounts.json+config.json 打包恢复）（2026-08-18 新增） |
 | `gui/lib/routes/tasks.js` | 任务：POST `/api/start`、POST `/api/stop`、GET `/api/task`（2026-08-18 新增） |
 | `gui/lib/routes/system.js` | 系统：POST `/api/shutdown`、GET `/api/stats`/`/api/summary`、GET `/api/keepalive`（SSE 保活）（2026-08-18 新增） |
-| `gui/start-gui.bat` | 一键启动脚本：**纯 ASCII（无中文，避免任何代码页乱码）**：`cd /d %~dp0` → `set PORT=3000`（可改）→ 校验 server.js → 3 秒后 PowerShell 开浏览器 → 当前窗口跑 `node server.js` |
+| `gui/start-gui.bat` | 一键启动脚本：**纯 ASCII（无中文，避免任何代码页乱码）**：`cd /d %~dp0` → PowerShell 从 `gui-settings.json` 动态读取端口注入 `PORT`（读取失败回退 3000）→ 校验 server.js → 3 秒后 PowerShell 开浏览器 → 当前窗口跑 `node server.js` |
 | `gui/start-gui-silent.vbs` | 静默启动（WScript.Shell 隐藏窗口跑 start-gui.bat）（2026-08-17 新增） |
 | `gui/stop-gui.bat` | 按端口（默认 3000）查 PID 并 taskkill /f 停止，避免误杀其他 Node 脚本（2026-08-17 新增） |
 | `gui/README.md` | GUI 专属用户文档（2026-08-17 新增；2026-08-20 全面重写） |
 | `gui/css/main.css` | 公共样式：卡片阴影/滚动条/图表占位 + 按钮组件类（.btn 家族）+ 弹窗/开关/进度条动效 + reduced-motion 降级（2026-08-19/20 扩充） |
 | `gui/css/animations.css` | 图表容器辅助样式（user-select 禁用、加载占位骨架） |
 | `gui/js/animator.js` | Chart.js 动画工具：chartAnimOptions（x 锚定 + y 从 0 生长）+ smoothUpdateChart（保留当前高度过渡，显式 400ms，reduced-motion 0ms）（2026-08-20 收敛时长） |
-| `gui/js/app.js` | 前端核心交互逻辑（加载/渲染/任务/导入导出/弹窗/SSE 保活/全局配置即时保存） |
+| `gui/js/app.js` | 前端核心交互逻辑（加载/渲染/任务/导入导出/弹窗/SSE 保活/全局配置即时保存/首次打开提示持久化） |
 | `gui/summary.json` | `--generate-summary` CLI 生成的持久化统计产物（不入库） |
+| `gui/gui-settings.json` | GUI 专属设置（端口等，与脚本核心 config.json 隔离）：`/api/gui-settings` 读写、start/stop-gui.bat 启动时动态读取（2026-08-20 纳入 CodeMap） |
 
 ### gui/server.js（及 lib/routes/）提供接口
 
@@ -57,6 +58,7 @@
 | `/api/accounts/:email` | PUT | JSON 账号对象 | 更新账号（备份 .bak→校验→合并写回） |
 | `/api/accounts/:email` | DELETE | - | 删除账号（备份 .bak→splice→写回，失败回滚） |
 | `/api/config` | GET/PUT | JSON 配置对象 | 读取/更新全局配置（宽松校验；强制忽略 parallelSearching；备份 .bak+合并写回） |
+| `/api/gui-settings` | GET/PUT | JSON `{port}` | 读取/保存 GUI 专属设置（端口校验 1024-65535 整数；写 gui/gui-settings.json + .bak 备份；重启后生效） |
 | `/api/config/reset` | POST | - | 重置为 src/config.example.json 默认 |
 | `/api/config/open` | POST | - | 系统默认程序打开实际 config 文件 |
 | `/api/sessions/import` | POST | `{filename,dataBase64}` | 导入 Session zip（白名单 session_*.json+防穿越+.bak） |
@@ -73,7 +75,7 @@
 | `/api/task` | GET | - | 任务状态 + 最近 100 行日志 |
 | `/api/shutdown` | POST | - | 关闭服务（延迟 500ms 退出） |
 | `/api/stats`/`/api/summary` | GET | - | 日志统计摘要（即时重算） |
-| `/api/keepalive` | GET | - | SSE 长连接保活（text/event-stream+keep-alive，req.on close→process.exit(0)） |
+| `/api/keepalive` | GET | - | SSE 长连接保活（text/event-stream+keep-alive；断开进入 5s 静默期，期内新连接取消销毁，超时才退出） |
 | `--generate-summary` | CLI | - | `node gui/server.js --generate-summary` 生成 gui/summary.json |
 
 ### 关键设计决策
@@ -89,8 +91,8 @@
 - **Stats 零收益过滤**：图例/堆叠柱仅收集 points>0，累计列表仅 totalPoints>0。（2026-08-17）
 - **一键导入导出本地数据（2026-08-18）**：仪表盘标题区"导出数据/导入数据"按钮，打包/恢复 sessions+logs+accounts.json+config.json；白名单+防穿越+.bak+回滚。
 - **模块化重构（2026-08-18）**：`server.js` 原约 1600 行拆为 `gui/lib/`（7 基础模块）+ `gui/lib/routes/`（8 路由模块），入口精简为组装 ctx+顺序分发。路由签名 `(req,res,pathname,ctx)=>boolean`（true=已处理），ctx 注入 config/http/validator/logger/summary/archive/taskManager 规避循环 require。拆分按依赖递增（config→httpUtils/validator→logger→summary→archive→taskManager→routes→入口）。
-- **网页关闭自动退出（SSE 长连接，2026-08-18）**：前端 EventSource('/api/keepalive')；服务端 text/event-stream+no-cache+keep-alive、不 res.end()、req.on('close')→process.exit(0)；不受浏览器后台标签页节流影响；前端 beforeunload 防误关。原 /api/heartbeat 短轮询已移除。
-- **端口配置**：默认端口 3000。start-gui.bat 中 `set PORT=3000` 统一控制（stop-gui.bat 的 `PORT_TO_KILL` 需同步）。
+- **页面刷新不掉服务（SSE 长连接 + 静默期，2026-08-18/20）**：前端 EventSource('/api/keepalive')（自带重连，DOMContentLoaded 重建连接）；服务端 text/event-stream+no-cache+keep-alive、不 res.end()；**断开后不再立即 process.exit，而是进入 5s 静默期倒计时**——期内有新连接（用户刷新）则取消销毁、复用会话状态，倒计时结束仍无连接才退出。连接计数支持多标签页并行。前端已移除 beforeunload 弹框（不再打断刷新）。原 /api/heartbeat 短轮询已移除。
+- **端口配置（gui-settings.json 统一控制）**：GUI 端口由 `gui/gui-settings.json` 的 `port` 字段统一管理，与脚本核心 config.json 隔离。启动链路：start-gui.bat / stop-gui.bat 启动时用 PowerShell 动态读取该文件并注入 `PORT` 环境变量，`lib/config.js` 的 `resolvePort()` 兜底读取（优先级：环境变量 PORT > gui-settings.json > 默认 3000），server.js 监听 `config.PORT`——命令行显示与监听端口同源，不会出现新旧端口不一致；GUI 设置页「GUI 本地端口」即改即存（`PUT /api/gui-settings`），重启后生效（2026-08-20）。
 - **前端响应式**：aside flex-shrink-0 + main min-w-0，防面板撑爆挤瘪侧边栏。（2026-08-16）
 - **全局配置即时保存（2026-08-19）**：checkbox 立即提交、text 500ms 防抖 + 失焦兜底；`CONFIG_FIELD_MAP` 字段映射表 + `saveConfigSilent` 增量提交；串行 Promise 链防并发写盘乱序；右上角"已自动保存/保存失败"状态提示（2.5s 后淡出）。
 - **前端动效规范（2026-08-20）**：按 emil-design-eng / review-animations 标准落地——按钮按压 `scale(0.97)` 160ms；弹窗进出对称（opacity + scale(0.96)↔1，250ms ease-out，关闭先播退出再 display:none，`data-open` 属性驱动，防快速开关竞态）；开关滑块 `after:transition-transform` + 轨道颜色 150ms ease（消除 `transition: all`）；面板切换 160ms 极轻淡入（tens/天高频克制档）；收益进度条 DOM diff 更新 + `transform: scaleX`（GPU，400ms）；全局 `prefers-reduced-motion` 降级（保留 opacity/颜色、移除位移）。
@@ -220,6 +222,8 @@
 
 | 日期 | 内容 |
 |------|------|
+| 2026-08-20 | **首次打开"环境安装"提示弹窗**：`gui/design-reference.html` 新增 `modal-env-setup`（完全复用既有 modal-root 模式：header 图标+标题+X、正文提示"请先安装环境，再执行其他操作"、"不再提示"复选框、btn-primary 确认按钮，250ms ease-out 进出动画 + reduced-motion 降级自动继承）；`gui/js/app.js` 新增 `ENV_SETUP_DISMISS_KEY` 常量 + DOMContentLoaded 内"勾选即写/取消即删 localStorage、无标记才 openModal"逻辑（浏览器实测：首次弹出 ✓、勾选确认后刷新不再弹 ✓）。浏览器 localStorage 持久化，无后端改动 |
+| 2026-08-20 | **GUI 端口链路核查 + 文档同步**：全链路实测验证——GUI 保存端口（`PUT /api/gui-settings`）→ `gui/gui-settings.json` → start-gui.bat 动态读取注入 `PORT` → `lib/config.js` `resolvePort()` → server.js 监听与命令行显示一致（实测 gui-settings.json=3004 时启动日志显示 `http://localhost:3004`，含空格路径下 bat 解析亦正常）；代码无需改动（历史端口 3003 为旧版残留值，见 gui-settings.json.bak）。文档同步：目录表补 `gui/gui-settings.json`、接口表补 `GET/PUT /api/gui-settings`、start-gui.bat 与「端口配置」设计决策改为 gui-settings.json 动态读取描述 |
 | 2026-08-20 | **CodeMap 全面同步**：gui 模块补全（lib/routes/ 8 路由拆行、summary.json、动效说明），"原有模块（参考）"扩写为完整 src/ 架构（browser/functions/interface/logging/util 五层），新增 scripts/ 与根目录配置小节，追加 GUI 前端动效规范设计决策 |
 | 2026-08-20 | **GUI 前端动效优化（emil-design-eng / review-animations 规范落地）**：①弹窗进出对称动画——打开 opacity+scale(0.96)→1（250ms ease-out，`data-open` 属性 + 双 rAF 触发，替代原 10ms setTimeout 纯淡入），关闭先播退出动画再 display:none（transitionend + 300ms 兜底，`_closing` 防快速开关竞态）；②开关组件——滑块 `after:transition-all`→`after:transition-transform duration-200 ease-out`（消除 `transition: all` 硬性违规），轨道颜色补 `.toggle-track` 150ms ease 过渡；③收益进度条——`transition-all duration-500` + innerHTML 全量重绘（过渡永不生效、宽度瞬跳）改为 DOM diff 更新 + `transform: scaleX`（transform-origin:left，400ms ease-out，GPU 合成属性）；④面板切换 160ms 极轻淡入（tens/天高频克制档，不做过位移动画）；⑤图表动画——animator.js 首次生长 600ms→400ms、smoothUpdateChart 显式 `update({duration:400})`（原 Chart.js 默认 1000ms 拖沓）、reduced-motion 0ms；⑥`animate-ping`/面板/遮罩/保存提示/代理字段禁用态补齐 reduced-motion 或过渡；⑦日志自动滚动仅在用户接近底部时触发。涉及文件：`gui/css/main.css`、`gui/js/app.js`、`gui/js/animator.js`、`gui/design-reference.html` |
 | 2026-08-19 | **新增日志导入/分析测试脚本**：`test/script/run-log-tests.js` 用 `test/data/logs-20260819-125022/`（logs-20260819-125022.zip 解压）跑 logger/summary 全流程测试。首次运行 31 项断言全部通过（解析 6551 行/过滤 555 异常行；每日收益 204/113/233/189/142/447/208；accountTotals 与独立参考实现完全一致）。期间测试脚本自身修过 3 处 bug（详见 commit 历史），被测代码零改动。验证了 08-14 同一天两次运行 ACCOUNT-END 累加 = 113、08-15/08-16 未完成账户走活动积分兜底（101/112）、08-19 无 ACCOUNT-END 兜底 208（2026-08-19） |

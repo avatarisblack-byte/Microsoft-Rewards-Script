@@ -3,6 +3,8 @@
         let configCache = null;
         let statsCache = null; // /api/stats 缓存（今日收益/总收益/每日趋势），30s 轮询刷新
         let guiSettingsCache = { port: 3000 }; // /api/gui-settings 缓存（GUI 专属配置：端口等）
+        // 首次打开"环境安装"提示弹窗：localStorage 持久化"不再提示"状态（存在即不再弹出）
+        const ENV_SETUP_DISMISS_KEY = 'gui-env-setup-dismissed';
 
         // ===== 工具函数 =====
         function emailUser(email) {
@@ -768,12 +770,6 @@
         }
 
         // ===== 关闭服务 =====
-        // 防误关/误刷新导致后台进程退出（关闭服务流程中需先移除，否则 window.close() 会再弹一次确认框）
-        function handleBeforeUnload(event) {
-            event.preventDefault();
-            event.returnValue = ''; // 触发浏览器默认的离开确认弹窗
-        }
-
         let isShuttingDown = false; // 防重入：双击/连点会连弹两次 confirm
 
         async function shutdownServer() {
@@ -793,10 +789,6 @@
                     } catch {}
                     throw new Error(msg);
                 }
-
-                // 用户已确认关闭：移除 beforeunload 拦截，
-                // 否则 window.close() 会再触发一次浏览器"离开此页面"确认框（双重弹窗）
-                window.removeEventListener('beforeunload', handleBeforeUnload);
 
                 // 停止轮询，避免服务退出后的失败请求刷 console
                 const overlays = document.getElementById('shutdown-overlay');
@@ -1475,21 +1467,29 @@
             // 绑定全局配置即时保存（checkbox 立即保存 + text 防抖保存）
             bindAutoSaveSettings();
 
+            // 首次打开弹窗：环境安装提示（"不再提示"勾选即写入 localStorage，取消勾选则移除标记）
+            const envSetupCheck = document.getElementById('env-setup-dismiss');
+            if (envSetupCheck) {
+                envSetupCheck.addEventListener('change', () => {
+                    if (envSetupCheck.checked) localStorage.setItem(ENV_SETUP_DISMISS_KEY, '1');
+                    else localStorage.removeItem(ENV_SETUP_DISMISS_KEY);
+                });
+            }
+            if (!localStorage.getItem(ENV_SETUP_DISMISS_KEY)) {
+                openModal('modal-env-setup');
+            }
+
             // 初始化时拉取任务状态（若服务端已有子进程在跑则显示运行中）
             pollTaskStatus();
 
             // 网页长连接保活：通过 EventSource 建立 SSE 长连接。
-            // 浏览器对该连接不断开（页面未关闭、仅后台休眠）则进程保持存活；
-            // 连接断开（页面真正关闭/刷新/跳转）时服务端立即退出进程。
-            // 相比定时 fetch 心跳，SSE 长连接不受后台标签页定时器节流影响。
+            // 页面刷新时会短暂断开旧连接并重建新连接（EventSource 自带重连，且 DOMContentLoaded
+            // 重新执行会再次 new EventSource）；后端对"全部断开"采用静默期（5s）延迟销毁，
+            // 因此刷新页面不会导致服务掉线，仅当真正关闭页面且超过静默期才退出。
             const keepaliveSource = new EventSource('/api/keepalive');
             keepaliveSource.onerror = () => {
-                // 服务端退出后连接错误属预期，忽略以免刷 console
+                // 服务端退出后连接错误属预期，忽略以免刷 console；EventSource 会自动重连
             };
-
-            // 关闭/刷新页面前弹出浏览器默认的离开确认框，防止误触导致后台进程退出
-            // （命名函数引用：关闭服务流程中需先移除，见 shutdownServer）
-            window.addEventListener('beforeunload', handleBeforeUnload);
 
             // 每 5 秒轮询任务状态（子进程日志实时更新）
             setInterval(pollTaskStatus, 5000);

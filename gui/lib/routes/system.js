@@ -6,6 +6,31 @@ const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
 
+// ===== 静默期（Grace Period）状态：客户端断开后延迟销毁，刷新页面不掉服务 =====
+// 页面刷新会短暂断开 SSE 连接，若立即 process.exit 会导致"刷新即掉线"。
+// 改为：断开后进入 5s 倒计时，期间有新连接（用户刷新）则取消销毁；倒计时结束仍无连接才退出。
+let activeKeepaliveConnections = 0 // 当前活跃的 keepalive 连接数（支持多标签页）
+let graceTimer = null              // 静默期倒计时句柄
+const GRACE_PERIOD_MS = 5000       // 5 秒缓冲
+
+function cancelGracePeriod() {
+    if (graceTimer) {
+        clearTimeout(graceTimer)
+        graceTimer = null
+        console.log('[GUI] 检测到新连接，取消服务销毁')
+    }
+}
+
+function startGracePeriod() {
+    if (graceTimer) return // 已在倒计时中，无需重复启动
+    console.log(`[GUI] 客户端连接全部断开，进入 ${GRACE_PERIOD_MS / 1000}s 静默期...`)
+    graceTimer = setTimeout(() => {
+        graceTimer = null
+        console.log('[GUI] 静默期结束，无新连接，服务退出')
+        process.exit(0)
+    }, GRACE_PERIOD_MS)
+}
+
 function handleSystem(req, res, pathname, ctx) {
     const { http, logCache } = ctx
 
@@ -57,7 +82,8 @@ function handleSystem(req, res, pathname, ctx) {
         return true
     }
 
-    // GET /api/keepalive（SSE 长连接保活：断开即退出）
+    // GET /api/keepalive（SSE 长连接保活 + 静默期优雅降级）
+    // 连接计数：支持多标签页/刷新时的并行连接；仅当所有连接都断开才进入静默期倒计时
     if (pathname === '/api/keepalive') {
         res.writeHead(200, {
             'Content-Type': 'text/event-stream',
@@ -66,9 +92,13 @@ function handleSystem(req, res, pathname, ctx) {
             'Access-Control-Allow-Origin': '*'
         })
         res.write(': connected\n\n')
+        activeKeepaliveConnections++
+        cancelGracePeriod() // 新连接到达：取消销毁倒计时，复用现有服务
         req.on('close', () => {
-            console.log('网页连接已断开，正在退出进程...')
-            process.exit(0)
+            activeKeepaliveConnections--
+            if (activeKeepaliveConnections <= 0) {
+                startGracePeriod() // 全部断开：进入静默期，而非立即退出
+            }
         })
         return true
     }

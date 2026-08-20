@@ -632,6 +632,41 @@
         </div>
     </div>
 
+    <!-- 3. 首次打开：环境安装提示弹窗（localStorage 持久化"不再提示"，勾选后不再弹出） -->
+    <div id="modal-env-setup" class="modal-root fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+        <div class="modal-backdrop absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onclick="closeModal('modal-env-setup')"></div>
+
+        <div class="modal-surface relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    环境安装提示
+                </h3>
+                <button onclick="closeModal('modal-env-setup')" class="text-gray-400 hover:text-gray-600 p-1" aria-label="关闭">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <div class="p-6 flex flex-col items-center text-center">
+                <div class="w-14 h-14 rounded-full bg-blue-50 flex items-center justify-center mb-4">
+                    <svg class="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 004.486-6.336l-3.276 3.277a3.004 3.004 0 01-2.25-2.25l3.276-3.276a4.5 4.5 0 00-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437l1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008z"></path></svg>
+                </div>
+                <p class="text-sm text-gray-600">请先安装环境，再执行其他操作</p>
+            </div>
+
+            <div class="px-6 pb-6 flex justify-center">
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+                    <input id="env-setup-dismiss" type="checkbox" class="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer">
+                    不再提示
+                </label>
+            </div>
+
+            <div class="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+                <button onclick="closeModal('modal-env-setup')" class="btn btn-primary">确认</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 服务已关闭遮罩（window.close 被浏览器拦截时兜底展示） -->
     <div id="shutdown-overlay" class="hidden fixed inset-0 z-[999] bg-gray-900/80 backdrop-blur-sm flex items-center justify-center">
         <div class="bg-white rounded-2xl shadow-2xl p-8 text-center max-w-sm mx-4">
