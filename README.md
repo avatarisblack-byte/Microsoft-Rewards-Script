@@ -91,9 +91,10 @@
 
 ### 4. 测试与质量
 
-- **自动化测试**：`node --test --test-isolation=none test/gui/*.test.js`（零依赖 `node:test` + tmp 沙箱隔离，仓库文件零改动）——**153 用例**，覆盖 25+ 个接口的正常/边界/异常输入、并发压力、XSS/zip slip/CRLF/脏数据崩溃、鉴权、写锁与生命周期
+- **自动化测试**：`node --test --test-isolation=none test/gui/*.test.js`（零依赖 `node:test` + tmp 沙箱隔离，仓库文件零改动）——**160 用例**，覆盖 25+ 个接口的正常/边界/异常输入、并发压力、XSS/zip slip/CRLF/脏数据崩溃、鉴权、写锁与生命周期
 - **覆盖率**：后端行覆盖 70.9%、函数覆盖 88.7%（`NODE_V8_COVERAGE` + `test/gui/coverage-report.js`）
 - **真机验证**：XSS 纯文本渲染、令牌链路、跨站窃取令牌被 CORS 拦截、单实例保护均经浏览器实测
+- **人工测试平台**：GUI 的完整人工运行测试仅在 **Windows 平台**执行（macOS / Linux 未对 GUI 做完整人工验证，脚本本体跨平台可用）
 - 详细报告见 [`gui/TEST_REPORT.md`](gui/TEST_REPORT.md)，变更历史见 [`gui/CHANGELOG.md`](gui/CHANGELOG.md)
 
 ---
@@ -453,7 +454,7 @@ docker compose restart          # 重启（不重建）
 | [`gui/README.md`](gui/README.md) | **GUI 控制面板完整手册**：快速开始、四大面板操作指南、安全策略、前端动效规范、接口速查、FAQ |
 | [`doc/CODE_MAP.md`](doc/CODE_MAP.md) | 项目代码地图：GUI 与 src/ 的目录结构、接口清单、关键设计决策、变更记录 |
 | [`gui/CHANGELOG.md`](gui/CHANGELOG.md) | GUI 变更历史（含最近的安全加固：Token 鉴权 / CORS 收紧 / 凭据脱敏 / 配置写锁 / 单实例保护） |
-| [`gui/TEST_REPORT.md`](gui/TEST_REPORT.md) | GUI 自动化测试报告：153 用例设计、缺陷修复对照、覆盖率、遗留风险 |
+| [`gui/TEST_REPORT.md`](gui/TEST_REPORT.md) | GUI 自动化测试报告：用例设计、缺陷修复对照、覆盖率、遗留风险 |
 | [`test/README.md`](test/README.md) | 测试目录说明 |
 
 ---

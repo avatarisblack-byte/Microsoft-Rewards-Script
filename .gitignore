@@ -25,8 +25,7 @@ logs/
 .env
 *.rar
 /.omo
-scripts/mac/mac的运行脚本
-更新同步原项目.txt
+
 test/data/
 
 # ===== Python 缓存 =====
