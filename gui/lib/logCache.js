@@ -21,6 +21,7 @@ const fs = require('fs')
 const path = require('path')
 const { LOGS_DIR, GUI_DIR } = require('./config')
 const summary = require('./summary')
+const cleanup = require('./cleanup')
 
 const CACHE_DIR = path.join(GUI_DIR, 'cache')
 const CACHE_FILE = path.join(CACHE_DIR, 'account-summary.json')
@@ -65,6 +66,8 @@ function generateCache() {
     const tmp = CACHE_FILE + '.tmp'
     fs.writeFileSync(tmp, JSON.stringify(payload))
     fs.renameSync(tmp, CACHE_FILE)
+    // 惰性清理 7 天前的残留缓存文件（2026-08-21）：重建是低频操作，随重建顺带清理不产生额外成本
+    cleanup.pruneOldCache(CACHE_DIR)
     return payload
 }
 

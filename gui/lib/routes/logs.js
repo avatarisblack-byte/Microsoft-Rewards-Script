@@ -48,8 +48,7 @@ function handleLogs(req, res, pathname, ctx) {
                 res.writeHead(200, {
                     'Content-Type': 'application/zip',
                     'Content-Disposition': `attachment; filename="logs-${stamp}.zip"`,
-                    'Content-Length': fileData.length,
-                    'Access-Control-Allow-Origin': '*'
+                    'Content-Length': fileData.length
                 })
                 res.end(fileData)
                 try { fs.rmSync(tmpRoot, { recursive: true, force: true }) } catch {}
@@ -121,16 +120,25 @@ function handleLogs(req, res, pathname, ctx) {
     }
 
     // GET /api/logs/summary（最新日志聚合）
+    // 方法校验（2026-08-21）：与 /api/logs 同属读接口，任意方法命中读取分支属同类未动项
     if (pathname === '/api/logs/summary') {
+        if (req.method !== 'GET') {
+            http.sendJson(res, 405, { error: '仅支持 GET /api/logs/summary' })
+            return true
+        }
         const file = logger.readLogFile(null)
         if (file && file.entries) file.summary = summary.summarizeLogs(file.entries)
         http.sendJson(res, 200, file)
         return true
     }
 
-    // GET /api/logs/:date
+    // GET /api/logs/:date（方法校验同上，2026-08-21）
     const logMatch = pathname.match(/^\/api\/logs\/(\d{4}-\d{2}-\d{2})$/)
     if (logMatch) {
+        if (req.method !== 'GET') {
+            http.sendJson(res, 405, { error: `仅支持 GET /api/logs/${logMatch[1]}` })
+            return true
+        }
         const file = logger.readLogFile(logMatch[1])
         if (file && file.entries) file.summary = summary.summarizeLogs(file.entries)
         http.sendJson(res, 200, file)

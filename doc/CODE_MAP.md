@@ -20,20 +20,21 @@
 
 | 文件 | 职责 |
 |------|------|
-| `gui/design-reference.html` | 控制面板前端页面（HTML 结构 + Tailwind CDN + Chart.js CDN，样式与逻辑已拆分至 css/ js/；含首次打开"环境安装"提示弹窗） |
-| `gui/server.js` | 入口（≈59 行）：组装 ctx → 按序调用 lib/routes/ 各路由 → `--generate-summary` CLI → listen（2026-08-18 重构）；分发层包 try/catch 并为异步路由的 Promise 补 catch，路由内逃逸的异常统一转 500，不再成为 uncaughtException 终止进程（2026-08-20 加固）；启动时生成 256 位随机 `AUTH_TOKEN`，新增免鉴权接口 `GET /api/auth/token` 供页面领取，所有 `/api/*` 请求统一校验 `X-Auth-Token`（SSE 的 EventSource 无法自定义请求头，`/api/keepalive` 额外支持 `?token=` 查询参数），不匹配返回 401；进程级单实例保护：项目根 `.gui.pid` 存活检测 + EADDRINUSE 兜底，检测到已有实例时友好提示并退出，防止多开并发写坏配置文件（2026-08-21 安全加固） |
+| `gui/design-reference.html` | 控制面板前端页面（HTML 结构 + Tailwind CDN + Chart.js CDN，样式与逻辑已拆分至 css/ js/；含首次打开"环境安装"提示弹窗）；仪表盘布局重构（2026-08-21）：任务实时日志区移至「全局摘要 → 实时日志 → 账号列表」动线中部（今日收益与首个账号之间） |
+| `gui/server.js` | 入口（≈59 行）：组装 ctx → 按序调用 lib/routes/ 各路由 → `--generate-summary` CLI → listen（2026-08-18 重构）；分发层包 try/catch 并为异步路由的 Promise 补 catch，路由内逃逸的异常统一转 500，不再成为 uncaughtException 终止进程（2026-08-20 加固）；启动时生成 256 位随机 `AUTH_TOKEN`，新增免鉴权接口 `GET /api/auth/token` 供页面领取，所有 `/api/*` 请求统一校验 `X-Auth-Token`（SSE 的 EventSource 无法自定义请求头，`/api/keepalive` 额外支持 `?token=` 查询参数），不匹配返回 401；进程级单实例保护：项目根 `.gui.pid` 存活检测 + EADDRINUSE 兜底，检测到已有实例时友好提示并退出，防止多开并发写坏配置文件（2026-08-21 安全加固）；HTTP 超时配置 `headersTimeout=20s / requestTimeout=60s / keepAliveTimeout=65s` 防慢速攻击（2026-08-21） |
 | `gui/lib/config.js` | 常量（PORT/ROOT/GUI_DIR/HTML_FILE/LOGS_DIR）+ resolveAccountsPath/resolveConfigPath/readJson（2026-08-18 新增）；writeGuiSettings 改为与现有设置合并写入（整体覆盖会清除 gui-settings.json 中的非端口设置）（2026-08-20 修复） |
 | `gui/lib/httpUtils.js` | sendJson / sendText / readBody（100MB 上限）（2026-08-18 新增）；readBody 补 aborted/close 监听 + 30s 超时并用 settled 标志只结算一次（客户端断网时原 Promise 永不 settle，请求体内存无法释放），sendJson 的 JSON.stringify 包 try/catch 降级 500（序列化抛错会让 res 永不 end）（2026-08-20 加固）；sendJson 移除 `Access-Control-Allow-Origin: *`（原配置下任意网页可跨域读取本机接口与账号凭据），浏览器仅允许同源访问（2026-08-21 安全加固） |
 | `gui/lib/validator.js` | validateAccountShape（账号结构校验，与 src/util/Validator.ts 字段规则对齐）（2026-08-18 新增）；email 补长度 ≤254（RFC 5321）、禁空白/控制字符、禁 `< > " ' \` &`（畸形邮箱会写进 accounts.json、破坏日志行结构并回显前端），proxy.port 收紧为 0-65535 整数（2026-08-20 加固） |
 | `gui/lib/logger.js` | parseLogLine / listLogFiles / readLogFile（2026-08-18 新增）；parseLogLine 解析前剥离行尾 `\r`（JS 正则的 `.` 不匹配 `\r`，CRLF 日志会被整行丢弃导致统计归零），readLogFile 以 `YYYY-MM-DD` 白名单校验并自动补 `.log` 后缀（原先按日期查询恒返回空，且 dateStr 可穿越目录）（2026-08-20 修复） |
 | `gui/lib/summary.js` | summarizeLogs / summarizeAllLogs / generateSummary / writeSummaryFile；收益口径：ACCOUNT-END 累加 + 本地时区日期键 + todayTotal（2026-08-18/19 新增）；summarizeLogs 取 `e.message \|\| ''` 后再匹配，残缺条目不再抛 TypeError（2026-08-20 加固） |
-| `gui/lib/archive.js` | unzipToDir / zipDir / makeTmpRoot（PowerShell/unzip 跨平台零依赖压缩解压）（2026-08-18 新增）；makeTmpRoot 改用 `fs.mkdtempSync`（原 `Date.now()+pid` 拼接在同毫秒并发下会撞同一目录，导入/导出互相覆盖 zip 并删对方目录）（2026-08-20 修复） |
+| `gui/lib/archive.js` | unzipToDir / zipDir / makeTmpRoot（PowerShell/unzip 跨平台零依赖压缩解压）（2026-08-18 新增）；makeTmpRoot 改用 `fs.mkdtempSync`（原 `Date.now()+pid` 拼接在同毫秒并发下会撞同一目录，导入/导出互相覆盖 zip 并删对方目录）（2026-08-20 修复）；PowerShell 命令不再把路径拼进 `-Command` 字符串，改经环境变量传递（路径含单引号会中断命令或构成注入）（2026-08-21 加固） |
 | `gui/lib/taskManager.js` | startTask / stopTask / getTaskStatus（子进程 spawn node dist/index.js，SIGTERM→10s SIGKILL 兜底，500 行环形日志缓冲）（2026-08-18 新增）；运行判定改用 `exitCode/signalCode`（`killed` 仅表示信号已发出，SIGTERM 后进程最多再存活 10s），启动加 `starting` 互斥 + 3s 节流，避免并发请求/重复点击先后拉起多个脚本进程（2026-08-20 加固） |
-| `gui/lib/logCache.js` | 日志摘要缓存：getCachedData / generateCache / isCacheFresh / invalidateCache，缓存文件 `gui/cache/account-summary.json`；用「文件名+大小+mtime」集合快照判定新鲜度（导入的 zip 解压会保留旧 mtime，单一"最新 mtime"判定会漏掉新导入日志），tmp+rename 原子写入；读取/重建异常降级为空摘要（缓存是性能优化，不应成为可用性单点）（2026-08-19 新增 / 2026-08-20 补异常兜底） |
+| `gui/lib/logCache.js` | 日志摘要缓存：getCachedData / generateCache / isCacheFresh / invalidateCache，缓存文件 `gui/cache/account-summary.json`；用「文件名+大小+mtime」集合快照判定新鲜度（导入的 zip 解压会保留旧 mtime，单一"最新 mtime"判定会漏掉新导入日志），tmp+rename 原子写入；读取/重建异常降级为空摘要（缓存是性能优化，不应成为可用性单点）（2026-08-19 新增 / 2026-08-20 补异常兜底）；generateCache 后惰性清理 7 天前残留缓存文件（2026-08-21） |
+| `gui/lib/cleanup.js` | 备份轮转与缓存清理（2026-08-21 新增）：`rotateBackup` 把旧 `.bak` 轮转为 `.bak.<UTC时间戳>` 并每类保留最近 5 个（固定 `.bak` 会被每次写入覆盖、无轮转会无限堆积）；`pruneOldCache` 删除缓存目录 7 天前文件。清理/轮转失败仅告警，绝不影响主流程 |
 | `gui/lib/routes/static.js` | 静态页 + `/css/*` `/js/*` 分发（防路径穿越黑名单）（2026-08-18 新增） |
-| `gui/lib/routes/config.js` | 配置 CRUD：GET/PUT `/api/config`、POST `/api/config/reset`、POST `/api/config/open`（2026-08-18 新增）；合并写回时对 `current.searchSettings` 做空值保护（缺该键时读 `.chinaApi` 会抛 TypeError 使保存整体失败）（2026-08-20 修复）；顶层字段改白名单校验（`ALLOWED_TOP_LEVEL`，来源 src/config.example.json 的 14 个顶层键，新增配置项需同步），未知字段返回 400 而非落盘污染 config.json（2026-08-20 加固）；PUT 加模块级写互斥锁 `isWriting`：写入期间到达的并发请求返回 409「系统正忙，请稍后重试」，`finally` 释放锁；readBody 后 `setImmediate` 让出事件循环，保证同一批并发请求先完成锁检查（本地回环小请求体同包缓冲时若不让出，前一请求会在后一请求回调前完成并释放锁，锁形同虚设）（2026-08-21 修复） |
-| `gui/lib/routes/accounts.js` | 账号 CRUD：GET/POST `/api/accounts`、PUT/DELETE `/api/accounts/:email`（.bak 备份+回滚）（2026-08-18 新增）；GET 分支校验数组结构与 email 类型，避免脏 accounts.json 触发 TypeError 终止进程（2026-08-20 加固）；GET 对 `password`/`totpSecret` 脱敏为 `******`（原先原样下发全部账号凭据）；PUT 把回传的脱敏占位符视为「未修改」剔除，防止前端编辑其他字段时把占位符覆盖写入真实凭据（2026-08-21 安全加固） |
-| `gui/lib/routes/logs.js` | 日志：GET `/api/logs`、导出/导入 zip、GET `/api/logs/:date`、GET `/api/logs/summary`（2026-08-18 新增）；GET `/api/logs` 校验 req.method 返回 405（2026-08-20 加固） |
+| `gui/lib/routes/config.js` | 配置 CRUD：GET/PUT `/api/config`、POST `/api/config/reset`、POST `/api/config/open`（2026-08-18 新增）；合并写回时对 `current.searchSettings` 做空值保护（缺该键时读 `.chinaApi` 会抛 TypeError 使保存整体失败）（2026-08-20 修复）；顶层字段改白名单校验（`ALLOWED_TOP_LEVEL`，来源 src/config.example.json 的 14 个顶层键，新增配置项需同步），未知字段返回 400 而非落盘污染 config.json（2026-08-20 加固）；PUT 加模块级写互斥锁 `isWriting`：写入期间到达的并发请求返回 409「系统正忙，请稍后重试」，`finally` 释放锁；readBody 后 `setImmediate` 让出事件循环，保证同一批并发请求先完成锁检查（本地回环小请求体同包缓冲时若不让出，前一请求会在后一请求回调前完成并释放锁，锁形同虚设）（2026-08-21 修复）；备份前调用 `cleanup.rotateBackup` 轮转历史备份（保留最近 5 个，2026-08-21） |
+| `gui/lib/routes/accounts.js` | 账号 CRUD：GET/POST `/api/accounts`、PUT/DELETE `/api/accounts/:email`（.bak 备份+回滚）（2026-08-18 新增）；GET 分支校验数组结构与 email 类型，避免脏 accounts.json 触发 TypeError 终止进程（2026-08-20 加固）；GET 对 `password`/`totpSecret` 脱敏为 `******`（原先原样下发全部账号凭据）；PUT 把回传的脱敏占位符视为「未修改」剔除，防止前端编辑其他字段时把占位符覆盖写入真实凭据（2026-08-21 安全加固）；备份前调用 `cleanup.rotateBackup` 轮转历史备份（2026-08-21） |
+| `gui/lib/routes/logs.js` | 日志：GET `/api/logs`、导出/导入 zip、GET `/api/logs/:date`、GET `/api/logs/summary`（2026-08-18 新增）；GET `/api/logs` 校验 req.method 返回 405（2026-08-20 加固）；`/api/logs/summary` 与 `/api/logs/:date` 补同款方法校验（同类未动项）；导出分支移除残留的 `Access-Control-Allow-Origin: *`（CORS 加固收尾）（2026-08-21） |
 | `gui/lib/routes/sessions.js` | Session zip 导入/导出（白名单 session_*.json + 防穿越 + .bak）（2026-08-18 新增） |
 | `gui/lib/routes/data.js` | 一键数据导入/导出（sessions+logs+accounts.json+config.json 打包恢复）（2026-08-18 新增） |
 | `gui/lib/routes/tasks.js` | 任务：POST `/api/start`、POST `/api/stop`、GET `/api/task`（2026-08-18 新增）；三个接口均校验 req.method 并对非法方法返回 405（原先仅判断 pathname，GET 即可启停脚本子进程）（2026-08-20 加固） |
@@ -44,10 +45,10 @@
 | `gui/README.md` | GUI 专属用户文档（2026-08-17 新增；2026-08-20 全面重写） |
 | `gui/CHANGELOG.md` | GUI 变更记录（2026-08-20 从 `doc/CODE_MAP.md`「变更记录」章节分离，13 条）：因 GUI 迭代频繁、条目长，混在项目级变更记录中会淹没 src/scripts 的改动；新增 GUI 条目一律写在此处，仓库级/非 GUI 改动仍写 CODE_MAP |
 | `gui/TEST_REPORT.md` | GUI 自动化测试与缺陷修复报告（2026-08-20 新增）：记录 `test/gui/` 测试套件的设计决策（tmp 沙箱隔离、直调路由判定崩溃、劫持 process.exit 测生命周期）、三阶段结果对比（109→126→138 通过 / 140）、18 项缺陷的根因与修复对照、逐文件覆盖率、两轮浏览器真机验证结论、遗留风险与后续建议。定位问题时可据此快速判断某模块是否已有回归守护 |
-| `gui/css/main.css` | 公共样式：卡片阴影/滚动条/图表占位 + 按钮组件类（.btn 家族）+ 弹窗/开关/进度条动效 + reduced-motion 降级（2026-08-19/20 扩充） |
+| `gui/css/main.css` | 公共样式：卡片阴影/滚动条/图表占位 + 按钮组件类（.btn 家族）+ 弹窗/开关/进度条动效 + reduced-motion 降级（2026-08-19/20 扩充）；最新动态状态块样式（emil-design-eng 规范，2026-08-21）：`.latest-done` 高对比边框+微渐变（ACCOUNT-END 完成态）、`.latest-running` box-shadow 脉冲（运行态，reduced-motion 降级）、`.account-end-pill` 圆角胶囊标签、`.key-point` 关键字段加粗主色 #0078D4 |
 | `gui/css/animations.css` | 图表容器辅助样式（user-select 禁用、加载占位骨架） |
 | `gui/js/animator.js` | Chart.js 动画工具：chartAnimOptions（x 锚定 + y 从 0 生长）+ smoothUpdateChart（保留当前高度过渡，显式 400ms，reduced-motion 0ms）（2026-08-20 收敛时长） |
-| `gui/js/app.js` | 前端核心交互逻辑（加载/渲染/任务/导入导出/弹窗/SSE 保活/全局配置即时保存/首次打开提示持久化）；escapeHtml 恢复真实 HTML 实体转义（原实现四个 replace 的替换目标与源字符相同 → 等同未转义，配合 innerHTML 渲染构成存储型 XSS），账号卡片按钮改 `data-email` + 事件委托（HTML 属性先实体解码再作 JS 解析，内联 onclick 拼接用户数据无法靠转义防注入）（2026-08-20 安全修复）；本地 Token 集成：页面加载先调 `/api/auth/token` 缓存令牌，新增 `apiFetch` 统一封装（自动携带 `X-Auth-Token`、401 时提示并刷新页面），全部业务请求与 SSE 保活（`?token=` 查询参数）改走令牌通道（2026-08-21 安全加固） |
+| `gui/js/app.js` | 前端核心交互逻辑（加载/渲染/任务/导入导出/弹窗/SSE 保活/全局配置即时保存/首次打开提示持久化）；escapeHtml 恢复真实 HTML 实体转义（原实现四个 replace 的替换目标与源字符相同 → 等同未转义，配合 innerHTML 渲染构成存储型 XSS），账号卡片按钮改 `data-email` + 事件委托（HTML 属性先实体解码再作 JS 解析，内联 onclick 拼接用户数据无法靠转义防注入）（2026-08-20 安全修复）；本地 Token 集成：页面加载先调 `/api/auth/token` 缓存令牌，新增 `apiFetch` 统一封装（自动携带 `X-Auth-Token`、401 时提示并刷新页面），全部业务请求与 SSE 保活（`?token=` 查询参数）改走令牌通道（2026-08-21 安全加固）；D18 修复：`fetchJson` 加 `AbortSignal.timeout(15000)`；两处固定 `setInterval` 轮询改为自调度 `setTimeout` + in-flight 锁 + 失败计数指数退避（任务 5s→10s→20s→40s→60s 封顶、数据 30s→60s→120s 封顶，成功重置计数；断网/服务关闭时不再请求堆积）；SSE 保活改手动退避重连（`onerror` 主动 `close()` 阻止浏览器内置 ~2.5s 固定间隔自动重连，改 `setTimeout` 5s→10s→20s→40s→60s 退避，`onopen` 重置计数，服务关闭时 eventsource 重连风暴消失）（2026-08-21）；日志呈现增强：新增 `parseAccountEnd` 解析 ACCOUNT-END 消息关键字段（总计/原始→新值/持续时间），账号卡片「最新动态」按状态渲染完整状态块（完成态：ACCOUNT-END 胶囊 + 关键字段加粗主色；运行态：脉冲动画），所有账号走同一渲染路径保证末账号格式严格对齐；实时日志流里程碑行（ACCOUNT-END/RUN-END）主色加粗高亮（2026-08-21） |
 | `gui/summary.json` | `--generate-summary` CLI 生成的持久化统计产物（不入库） |
 | `gui/gui-settings.json` | GUI 专属设置（端口等，与脚本核心 config.json 隔离）：`/api/gui-settings` 读写、start/stop-gui.bat 启动时动态读取（2026-08-20 纳入 CodeMap） |
 
@@ -219,17 +220,17 @@
 | 文件 | 职责 |
 |------|------|
 | `test/script/run-log-tests.js` | 日志导入（解析）+ 分析（统计）测试：`node test/script/run-log-tests.js`，零依赖（node:assert），数据源 `test/data/logs-20260819-125022/`（7 份日志）；含独立参考实现（split 法解析 + 逐账户聚合）与被测 `logger.js`/`summary.js` 交叉对拍，动态生成期望值（2026-08-19 新增） |
-| `test/gui/helpers/sandbox.js` | GUI 测试基础设施：把 `gui/` 复制到 `os.tmpdir()` 沙箱并伪造 `config.json`/`accounts.json`/`logs/`/`src/*.example.json`（**因 `lib/config.js` 用 `__dirname` 推导 ROOT，只能靠同构目录实现隔离**，从而保证仓库文件零改动）；含跨时区稳定的日志夹具（3 天/251 分）、进程内启服务（劫持 `http.createServer` 捕获实例以便可靠 close）、HTTP 助手、手写 store 模式 zip 生成器（CRC32，用于导入与 zip slip 用例） |
-| `test/gui/unit.test.js` | 49 用例：`validator`（异常输入/边界值）、`httpUtils`（100MB 上限/断连/循环引用）、`logger`（CRLF/超长行/穿越）、`summary`（统计口径/脏数据）、`archive`（tmp 唯一性/压缩往返）、`logCache`（新鲜度快照/损坏重建） |
-| `test/gui/api.test.js` | 73 用例：25 个 HTTP 接口的正常/边界/异常输入 + 方法校验 + zip 导入导出与 zip slip 防护 + 并发压力（50 并发读、20 并发写、10 并发新增账号、客户端中断、8MB 大包） |
-| `test/gui/resilience.test.js` | 18 用例：脏数据下的异常逃逸（直调路由判定"是否会终止进程"）、服务端 500 降级、前端 `escapeHtml`/`fetchJson` 提取后实测、SSE 静默期与 `/api/shutdown` 生命周期（劫持 `process.exit` 观测，不真正退出） |
+| `test/gui/helpers/sandbox.js` | GUI 测试基础设施：把 `gui/` 复制到 `os.tmpdir()` 沙箱并伪造 `config.json`/`accounts.json`/`logs/`/`src/*.example.json`（**因 `lib/config.js` 用 `__dirname` 推导 ROOT，只能靠同构目录实现隔离**，从而保证仓库文件零改动）；含跨时区稳定的日志夹具（3 天/251 分）、进程内启服务（劫持 `http.createServer` 捕获实例以便可靠 close）、HTTP 助手、手写 store 模式 zip 生成器（CRC32，用于导入与 zip slip 用例）；复制过滤器排除 cache 与 `.bak`/`.bak.*` 历史备份（2026-08-21 更新）；引入本地 Token 鉴权后按 base 惰性缓存令牌并自动注入请求头（`auth:false` 可关闭），`waitForServer` 探测令牌接口（2026-08-21） |
+| `test/gui/unit.test.js` | 49 用例：`validator`（异常输入/边界值）、`httpUtils`（100MB 上限/断连/循环引用）、`logger`（CRLF/超长行/穿越）、`summary`（统计口径/脏数据）、`archive`（tmp 唯一性/压缩往返）、`logCache`（新鲜度快照/损坏重建）；2026-08-21 新增 U-A04（archive 源码不得拼接路径）、U-C06（缓存 7 天清理），共 53 用例 |
+| `test/gui/api.test.js` | 73 用例：25 个 HTTP 接口的正常/边界/异常输入 + 方法校验 + zip 导入导出与 zip slip 防护 + 并发压力（50 并发读、20 并发写、10 并发新增账号、客户端中断、8MB 大包）；2026-08-21 起含 I-SEC01~10（Token 鉴权/CORS/脱敏）与 I-P03 写锁确定性占锁用例、I-C16（bak 轮转）、I-L05b（summary/:date 方法校验），共 86 用例 |
+| `test/gui/resilience.test.js` | 18 用例：脏数据下的异常逃逸（直调路由判定"是否会终止进程"）、服务端 500 降级、前端 `escapeHtml`/`fetchJson` 提取后实测、SSE 静默期与 `/api/shutdown` 生命周期（劫持 `process.exit` 观测，不真正退出）；2026-08-21 起 R-F03/R-F04（前端超时/轮询退避守护网）转绿，另含 R-L01b（无令牌 keepalive 401）、R-L05/R-L06（单实例保护），共 23 用例 |
 | `test/gui/coverage-report.js` | 覆盖率聚合：内置 `--experimental-test-coverage` 只统计 cwd 内文件（沙箱在 tmp 下故为空），本脚本解析 `NODE_V8_COVERAGE` 原始数据并把沙箱路径映射回 `gui/` 源文件，多沙箱取并集输出 Markdown 表 |
 
 ## 根目录配置
 
 | 文件 | 职责 |
 |------|------|
-| `package.json` | 主脚本 v3.1.6.4；scripts：build/start/dev/lint/format/clear-sessions/open-session/create-docker；Node ≥24 |
+| `package.json` | 主脚本 v3.1.6.4；scripts：build/start/dev/lint/format/clear-sessions/open-session/create-docker；Node ≥24；新增 `test` 脚本（`node --test --test-isolation=none test/gui/*.test.js`，2026-08-21） |
 | `tsconfig.json` | TypeScript 编译配置 |
 | `eslint.config.mjs` / `.prettierrc` | 代码规范（ESLint 10 + Prettier 3） |
 | `Dockerfile` / `compose.yaml` / `.dockerignore` | Docker 构建与编排（`npm run create-docker`） |
@@ -244,5 +245,6 @@
 
 | 日期 | 内容 |
 |------|------|
+| 2026-08-21 | **次要问题收尾：P2 清零 + 工程化补全**（详见 `gui/CHANGELOG.md` 同日条目）：D18 前端超时/轮询退避（R-F03/R-F04 转绿，测试 157 用例全绿）、HTTP 服务超时、日志接口 405 补全、archive 路径拼接注入修复、`package.json` test 脚本、`.bak` 轮转（保留最近 5 个）与 cache 7 天清理 |
 | 2026-08-21 | **安全加固：本地 Token 鉴权 + 配置写锁 + 单实例保护**（详见 `gui/CHANGELOG.md` 同日条目） |
 | 2026-08-19 | `.gitignore` 再调整（检查报告确认）：①删除 `/.agents` 规则——`.agents/skills/rewards-server-actions/` 技能文件与 `skills-lock.json` 需保留追踪，原忽略规则与现状矛盾；②`Microsoft-Rewards-Script.rar` 改通用 `*.rar`；③新增 `scripts/mac/mac的运行脚本`（中文名说明文件，`git rm --cached` 移出索引，本地保留）、`更新同步原项目.txt`（本地 git 命令备忘，同上）、`test/data/`（测试日志含真实邮箱，不提交） |

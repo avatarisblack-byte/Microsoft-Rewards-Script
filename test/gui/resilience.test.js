@@ -244,6 +244,28 @@ describe('R-F 前端脚本容错与输出编码', () => {
         const src = appSource()
         assert.match(src, /clearInterval|inFlight|isLoading|pending|backoff/i, '未发现任何轮询并发保护或退避机制')
     })
+
+    test('R-F05 parseAccountEnd 正确解析 ACCOUNT-END 关键字段【期望依据：末账号状态块渲染依赖解析，所有账号走同一渲染路径，格式须严格对齐】', () => {
+        const parseAccountEnd = extractFunction(appSource(), 'parseAccountEnd')
+        const ok = parseAccountEnd({
+            lastEvent: 'ACCOUNT-END',
+            lastMessage: '已完成账户: tester.a@example.com | 总计: +100 | 原始: 500 → 新值: 600 | 持续时间: 900.0秒'
+        })
+        assert.deepStrictEqual(ok, { total: 100, initial: 500, final: 600, durationSeconds: 900 })
+        assert.strictEqual(parseAccountEnd({ lastEvent: 'ACCOUNT-START', lastMessage: '开始处理账户' }), null)
+        assert.strictEqual(parseAccountEnd({ lastEvent: 'ACCOUNT-END', lastMessage: null }), null)
+        assert.strictEqual(parseAccountEnd(null), null)
+    })
+
+    test('R-F06 仪表盘布局遵循「全局摘要 → 实时日志 → 账号列表」动线【期望依据：实时日志须位于今日收益与首个账号之间，修复日志流位置错位】', () => {
+        const html = fs.readFileSync(path.join(SB, 'gui', 'design-reference.html'), 'utf-8')
+        const summaryPos = html.indexOf('home-total-balance-sub')
+        const logPos = html.indexOf('task-log-box')
+        const cardsPos = html.indexOf('home-account-cards')
+        assert.ok(summaryPos > -1 && logPos > -1 && cardsPos > -1, '关键布局节点缺失')
+        assert.ok(summaryPos < logPos && logPos < cardsPos,
+            `布局顺序错误: summary=${summaryPos}, log=${logPos}, cards=${cardsPos}`)
+    })
 })
 
 // ============ 生命周期：keepalive 静默期与 shutdown ============

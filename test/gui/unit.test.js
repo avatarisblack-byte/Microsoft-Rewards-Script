@@ -359,6 +359,13 @@ describe('U-A archive 临时目录与压缩', () => {
         await archive.unzipToDir(zip, out)
         assert.strictEqual(fs.readFileSync(path.join(out, 'a.log'), 'utf-8'), 'hello-archive')
     })
+
+    test('U-A04 PowerShell 命令不得拼接路径【期望依据：临时目录含单引号等特殊字符会中断命令或构成注入；路径须经环境变量传递】', () => {
+        const src = fs.readFileSync(path.join(SB, 'gui', 'lib', 'archive.js'), 'utf-8')
+        assert.ok(!src.includes("-LiteralPath '"), 'unzipToDir 仍把路径拼进 -Command 字符串')
+        assert.ok(!src.includes("-Path '"), 'zipDir 仍把路径拼进 -Command 字符串')
+        assert.match(src, /GUI_ARCHIVE_SRC/, '未发现环境变量传递路径的实现')
+    })
 })
 
 // ============ logCache：缓存新鲜度与状态管理 ============
@@ -392,5 +399,25 @@ describe('U-C logCache 缓存新鲜度与状态管理', () => {
         let data = null
         assert.doesNotThrow(() => { data = logCache.getCachedData() })
         assert.ok(data && data.summary)
+    })
+
+    test('U-C06 重建缓存时清理 7 天前的残留文件【期望依据：cache/ 无轮转策略会无限堆积】', () => {
+        const cacheDir = path.dirname(logCache.CACHE_FILE)
+        fs.mkdirSync(cacheDir, { recursive: true })
+        const stale = path.join(cacheDir, 'stale-orphan.json')
+        const fresh = path.join(cacheDir, 'fresh-orphan.json')
+        fs.writeFileSync(stale, '{}', 'utf-8')
+        fs.writeFileSync(fresh, '{}', 'utf-8')
+        const now = new Date()
+        const weekAgo = new Date(now.getTime() - 8 * 24 * 60 * 60 * 1000)
+        const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+        fs.utimesSync(stale, weekAgo, weekAgo)
+        fs.utimesSync(fresh, dayAgo, dayAgo)
+
+        logCache.generateCache()
+
+        assert.ok(!fs.existsSync(stale), '8 天前的残留缓存文件未被清理')
+        assert.ok(fs.existsSync(fresh), '1 天前的文件不应被清理')
+        assert.ok(fs.existsSync(logCache.CACHE_FILE), '当前缓存文件不应被清理')
     })
 })

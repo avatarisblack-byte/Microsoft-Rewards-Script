@@ -5,6 +5,7 @@
 const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
+const cleanup = require('../cleanup')
 
 // 配置写互斥（2026-08-21）：多标签页并发保存时，原先「最后写入者胜」会静默覆盖对方的修改，
 // .bak 备份也会被中间态覆盖。与 taskManager 的 starting 互斥同思路：
@@ -154,6 +155,7 @@ function handleConfig(req, res, pathname, ctx) {
                 const configPath = config.resolveConfigPath()
                 const current = config.readJson(configPath) || {}
                 const backupPath = configPath + '.bak'
+                cleanup.rotateBackup(configPath) // 旧 .bak 轮转为历史备份（保留最近 5 个，2026-08-21）
                 try { fs.copyFileSync(configPath, backupPath) } catch (e) {
                     return http.sendJson(res, 500, { error: `备份 config.json 失败: ${e.message}` })
                 }
@@ -221,6 +223,7 @@ function handleConfig(req, res, pathname, ctx) {
                 const defaults = JSON.parse(fs.readFileSync(defaultTemplate, 'utf-8'))
                 const backupPath = configPath + '.bak'
                 if (fs.existsSync(configPath)) {
+                    cleanup.rotateBackup(configPath) // 旧 .bak 轮转为历史备份（保留最近 5 个，2026-08-21）
                     try { fs.copyFileSync(configPath, backupPath) } catch (e) {
                         return http.sendJson(res, 500, { error: `备份 config.json 失败: ${e.message}` })
                     }

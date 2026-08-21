@@ -336,3 +336,50 @@
 .stats-grad-bar {
     background: linear-gradient(90deg, #93c5fd, #3b82f6, #2563eb);
 }
+
+/* ===== 最新动态状态块（emil-design-eng 规范，2026-08-21） ===== */
+/* ACCOUNT-END 完成块：高对比度边框 + 微渐变背景（静态呈现，不给完成态附加无意义动画） */
+.latest-done {
+    border-color: rgba(0, 120, 212, 0.35);
+    background: linear-gradient(135deg, rgba(0, 120, 212, 0.07), rgba(0, 120, 212, 0.02));
+}
+
+/* 运行中块：box-shadow 呼吸脉冲（仅 transform/opacity 之外的阴影动画；状态指示目的明确——活动进程） */
+.latest-running {
+    border-color: rgba(0, 120, 212, 0.25);
+    background: rgba(0, 120, 212, 0.04);
+    animation: latest-pulse 2s ease-in-out infinite;
+}
+
+@keyframes latest-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(0, 120, 212, 0.14); }
+    50% { box-shadow: 0 0 0 5px rgba(0, 120, 212, 0.05); }
+}
+
+/* ACCOUNT-END 圆角胶囊标签（用户指定样式） */
+.account-end-pill {
+    display: inline-flex;
+    align-items: center;
+    background: #F3F2F1;
+    border: 1px solid #E1DFDD;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #0078D4;
+    white-space: nowrap;
+}
+
+/* 关键字段：加粗 + 主色 #0078D4（积分变化、总运行时间） */
+.key-point {
+    font-weight: 700;
+    color: #0078D4;
+}
+
+/* 减少动态：移除运行中脉冲（保留颜色/边框，供状态理解） */
+@media (prefers-reduced-motion: reduce) {
+    .latest-running {
+        animation: none;
+    }
+}

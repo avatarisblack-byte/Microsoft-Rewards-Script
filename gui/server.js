@@ -101,6 +101,13 @@ if (process.argv.includes('--generate-summary')) {
     process.exit(0)
 }
 
+// ===== HTTP 超时配置（2026-08-21）：防慢速攻击 =====
+// 未设置时 Node 默认 headersTimeout=60s、无 requestTimeout，慢速客户端可长期占用连接。
+// keepAliveTimeout 需大于 headersTimeout；SSE 保活连接处于响应进行中，不受这些超时约束。
+server.headersTimeout = 20000
+server.requestTimeout = 60000
+server.keepAliveTimeout = 65000
+
 // ===== 进程级单实例保护（2026-08-21） =====
 // 方案：项目根目录写入 .gui.pid 记录进程号，启动前检测已有存活实例。
 // 不依赖 EADDRINUSE：Windows 上 SO_REUSEADDR 语义允许第二个进程重复 bind 同一端口，

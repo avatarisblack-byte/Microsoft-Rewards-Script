@@ -43,8 +43,10 @@
             return res;
         }
 
+        // 15s 超时（2026-08-21）：断网或服务端无响应时 fetch 永不 settle，
+        // 界面会停留在加载态且轮询持续堆积；超时后请求被主动 abort 并抛出错误
         async function fetchJson(url) {
-            const res = await apiFetch(url);
+            const res = await apiFetch(url, { signal: AbortSignal.timeout(15000) });
             if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
             return res.json();
         }
@@ -142,7 +144,10 @@
             }
             logBox.innerHTML = log.map(entry => {
                 const ts = entry.time ? new Date(entry.time).toLocaleString('zh-CN', { hour12: false }) : '';
-                return `<div class="text-[11px] leading-tight ${/ERROR|失败/i.test(entry.line) ? 'text-red-500' : /WARN/i.test(entry.line) ? 'text-yellow-600' : /DEBUG/i.test(entry.line) ? 'text-gray-400' : 'text-gray-600'}"><span class="text-gray-300 mr-2">${ts || ''}</span>${escapeHtml(entry.line)}</div>`;
+                // 里程碑行（ACCOUNT-END / RUN-END）使用主色加粗（2026-08-21）：
+                // 让任务收尾节点在实时流中一眼可辨，便于确认每个账号（含最后一个）的完成标识
+                const isMilestone = /ACCOUNT-END|RUN-END/.test(entry.line || '');
+                return `<div class="text-[11px] leading-tight ${/ERROR|失败/i.test(entry.line) ? 'text-red-500' : /WARN/i.test(entry.line) ? 'text-yellow-600' : /DEBUG/i.test(entry.line) ? 'text-gray-400' : 'text-gray-600'}"><span class="text-gray-300 mr-2">${ts || ''}</span><span class="${isMilestone ? 'key-point font-semibold' : ''}">${escapeHtml(entry.line)}</span></div>`;
             }).join('');
             // 仅当用户接近底部时才自动滚动，避免打断向上翻阅历史日志
             const nearBottom = logBox.scrollHeight - logBox.scrollTop - logBox.clientHeight < 40;
@@ -154,8 +159,10 @@
                 const res = await fetchJson('/api/task');
                 setTaskUI(res.running);
                 renderTaskLog(res.log || []);
+                return true; // 供轮询调度器判断成功/失败（决定退避节奏）
             } catch (e) {
                 console.error('任务状态拉取失败:', e);
+                return false;
             }
         }
 
@@ -174,9 +181,12 @@
                 if (results[2].status === 'fulfilled') statsCache = results[2].value;
                 if (results[3].status === 'fulfilled') guiSettingsCache = results[3].value;
                 renderAll();
+                // 至少一个接口成功即视为服务存活（供轮询调度器重置退避）
+                return results.some(r => r.status === 'fulfilled');
             } catch (error) {
                 console.error('加载数据失败:', error);
                 document.getElementById('home-total-accounts-sub').innerText = '加载失败，请确认已运行 node gui/server.js';
+                return false;
             }
         }
 
@@ -187,6 +197,25 @@
             if (log.lastEvent === 'ACCOUNT-START' && !log.collectedPoints) return { type: 'running', label: '运行中' };
             if (log.lastLevel === 'ERROR') return { type: 'error', label: '异常' };
             return { type: 'done', label: '已完成' };
+        }
+
+        // 解析 ACCOUNT-END 消息中的关键字段（总计/原始→新值/持续时间），
+        // 供「最新动态」完整状态块渲染——所有账号（含最后一个）走同一渲染路径，
+        // 只要日志中存在 ACCOUNT-END 行，就严格按与前序账号一致的格式呈现。
+        function parseAccountEnd(log) {
+            if (!log || log.lastEvent !== 'ACCOUNT-END' || !log.lastMessage) return null;
+            const m = log.lastMessage;
+            const total = (m.match(/总计:\s*\+(\d+)/) || [])[1];
+            const initial = (m.match(/原始:\s*(\d+)\s*→/) || [])[1];
+            const final = (m.match(/→\s*新值:\s*(\d+)/) || [])[1];
+            const durSec = (m.match(/持续时间:\s*([\d.]+)\s*秒/) || [])[1];
+            if (total == null && initial == null && final == null && durSec == null) return null;
+            return {
+                total: total != null ? parseInt(total, 10) : null,
+                initial: initial != null ? parseInt(initial, 10) : null,
+                final: final != null ? parseInt(final, 10) : null,
+                durationSeconds: durSec != null ? parseFloat(durSec) : null
+            };
         }
 
         // 状态 Tag：指示点/图标 + 彩色徽章（运行中绿点呼吸、已完成灰勾、异常红叉、空闲灰点）
@@ -263,7 +292,40 @@
                 const status = getAccountStatus(log);
                 const todayPts = todayAccountsMap[emailUser(acc.email)] || 0;
                 const collected = todayPts > 0 ? `+${todayPts}` : '--';
-                const latestMsg = log ? log.lastMessage : '暂无运行记录';
+
+                // 最新动态状态块（2026-08-21 增强）：
+                // 运行中 → 脉冲动画；ACCOUNT-END → 高对比边框 + 微渐变背景 + 胶囊标签 + 关键字段加粗主色；
+                // 其余事件走基础样式。所有账号走同一渲染路径，保证格式严格对齐。
+                const endInfo = parseAccountEnd(log);
+                const latestBlock = !log
+                    ? `<div class="bg-blue-50/50 p-4 rounded-xl border border-blue-50 min-w-0">
+                            <p class="text-xs text-blue-500 mb-1">最新动态</p>
+                            <p class="text-sm font-semibold text-gray-700">暂无运行记录</p>
+                        </div>`
+                    : status.type === 'running'
+                        ? `<div class="latest-running p-4 rounded-xl border min-w-0">
+                                <p class="text-xs text-blue-500 mb-1">最新动态</p>
+                                <div class="mb-1">${eventBadgeHtml(log.lastEvent)}</div>
+                                <p class="text-sm font-semibold text-gray-700 line-clamp-2">${escapeHtml(log.lastMessage || '')}</p>
+                            </div>`
+                        : endInfo
+                            ? `<div class="latest-done p-4 rounded-xl border min-w-0">
+                                    <div class="flex items-center justify-between gap-2 mb-2">
+                                        <span class="account-end-pill">ACCOUNT-END</span>
+                                        <span class="text-xs text-gray-400">${formatTime(log.lastTime)}</span>
+                                    </div>
+                                    <p class="text-sm text-gray-700 mb-1 line-clamp-2">${escapeHtml(log.lastMessage || '')}</p>
+                                    <p class="text-sm flex flex-wrap items-center gap-x-2 gap-y-1">
+                                        ${endInfo.total != null ? `<span class="key-point">+${endInfo.total} pts</span>` : ''}
+                                        ${endInfo.initial != null && endInfo.final != null ? `<span class="text-gray-500">原始 ${endInfo.initial} → 新值 ${endInfo.final}</span>` : ''}
+                                        ${endInfo.durationSeconds != null ? `<span class="text-gray-500">总运行时间: <span class="key-point">${(endInfo.durationSeconds / 60).toFixed(2)}</span> 分钟</span>` : ''}
+                                    </p>
+                                </div>`
+                            : `<div class="bg-blue-50/50 p-4 rounded-xl border border-blue-50 min-w-0">
+                                    <p class="text-xs text-blue-500 mb-1">最新动态</p>
+                                    <div class="mb-1">${eventBadgeHtml(log.lastEvent)}</div>
+                                    <p class="text-sm font-semibold text-gray-700 line-clamp-2">${escapeHtml(log.lastMessage || '')}</p>
+                                </div>`;
 
                 return `
                 <div class="bg-white p-6 rounded-2xl border border-gray-100 card-shadow space-y-5 min-w-0">
@@ -285,11 +347,7 @@
                             <p class="text-2xl font-bold ${collected === '--' ? 'text-gray-400' : 'text-blue-700'}">${collected} pts</p>
                             ${todayPts > 0 ? `<div class="mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden"><div class="stats-grad-bar h-full rounded-full" style="width:${Math.max(4, todayPts / maxToday * 100)}%"></div></div>` : ''}
                         </div>
-                        <div class="bg-blue-50/50 p-4 rounded-xl border border-blue-50 min-w-0">
-                            <p class="text-xs text-blue-500 mb-1">最新动态</p>
-                            ${log ? `<div class="mb-1">${eventBadgeHtml(log.lastEvent)}</div>` : ''}
-                            <p class="text-sm font-semibold text-gray-700 line-clamp-2">${escapeHtml(latestMsg)}</p>
-                        </div>
+                        ${latestBlock}
                     </div>
                     ${log ? `<p class="text-[11px] text-gray-400">最近活动: ${formatTime(log.lastTime)} · ${escapeHtml(log.lastEvent || '')}</p>` : ''}
                 </div>`;
@@ -1526,19 +1584,99 @@
             // 初始化时拉取任务状态（若服务端已有子进程在跑则显示运行中）
             pollTaskStatus();
 
-            // 网页长连接保活：通过 EventSource 建立 SSE 长连接。
+            // ===== 网页长连接保活（手动退避重连，2026-08-21） =====
             // EventSource 无法自定义请求头，令牌改走 ?token= 查询参数（后端同样校验）。
-            // 页面刷新时会短暂断开旧连接并重建新连接（EventSource 自带重连，且 DOMContentLoaded
-            // 重新执行会再次 new EventSource）；后端对"全部断开"采用静默期（5s）延迟销毁，
-            // 因此刷新页面不会导致服务掉线，仅当真正关闭页面且超过静默期才退出。
-            const keepaliveSource = new EventSource(`/api/keepalive?token=${encodeURIComponent(authToken)}`);
-            keepaliveSource.onerror = () => {
-                // 服务端退出后连接错误属预期，忽略以免刷 console；EventSource 会自动重连
-            };
+            // 标准 EventSource 构造器没有 reconnect 选项，禁用浏览器内置自动重连
+            // （间隔固定约 2~3s，服务关闭时会疯狂重连刷屏）的唯一方式是在 onerror 中
+            // 第一时间 close()：close 会把 readyState 置为 CLOSED 并取消浏览器已安排的
+            // 内置重连计时器。随后改用手动 setTimeout 指数退避
+            // （5s→10s→20s→40s→60s 封顶），onopen 成功时重置计数。
+            // 页面刷新场景：DOMContentLoaded 重新执行立即建立新连接（首次无延迟），
+            // 后端 5s 静默期语义不变，刷新页面不会导致服务掉线。
+            let keepaliveFailCount = 0;
+            let keepaliveSource = null;
+            const KEEPALIVE_BASE_MS = 5000;
+            const KEEPALIVE_MAX_MS = 60000;
 
-            // 每 5 秒轮询任务状态（子进程日志实时更新）
-            setInterval(pollTaskStatus, 5000);
+            function scheduleKeepalive(delay = KEEPALIVE_BASE_MS) {
+                setTimeout(() => {
+                    // 重建前强制销毁旧实例（双保险）：即使上次 onerror 未触发 close，
+                    // 也不让残留实例继续其内置的固定间隔自动重连
+                    if (keepaliveSource) {
+                        keepaliveSource.close();
+                        keepaliveSource = null;
+                    }
+                    keepaliveSource = new EventSource(`/api/keepalive?token=${encodeURIComponent(authToken)}`);
+                    keepaliveSource.onopen = () => {
+                        keepaliveFailCount = 0; // 连接成功，重置退避计数
+                    };
+                    keepaliveSource.onerror = () => {
+                        // 第一时间 close：阻止浏览器默认的 ~2.35s 固定间隔自动重连，
+                        // 重连改由下方手动退避调度（失败计数驱动延迟翻倍）
+                        keepaliveSource.close();
+                        keepaliveSource = null;
+                        keepaliveFailCount += 1;
+                        scheduleKeepalive(Math.min(KEEPALIVE_BASE_MS * Math.pow(2, keepaliveFailCount), KEEPALIVE_MAX_MS));
+                    };
+                }, delay);
+            }
 
-            // 每 30 秒自动刷新面板数据（日志会持续写入）
-            setInterval(loadData, 30000);
+            scheduleKeepalive(0); // 首次立即连接（等同旧行为：页面加载即建立 SSE）
+
+            // ===== 轮询调度（setTimeout 递归 + in-flight 锁 + 失败计数退避，2026-08-21） =====
+            // 原先固定间隔 setInterval：断网/服务关闭时慢请求会无限叠加、Console 疯狂刷屏。
+            // 现改为自调度 setTimeout：上一轮未完成则跳过本轮；连续失败按指数退避
+            // 5s→10s→20s→40s→60s 封顶，成功立即重置失败计数回到 5s。
+            let taskPollInFlight = false;
+            let taskPollFailCount = 0;
+            const TASK_POLL_BASE_MS = 5000;
+            const TASK_POLL_MAX_MS = 60000;
+
+            function scheduleTaskPoll() {
+                // 在调用 setTimeout 之前按当前失败计数计算本次延迟：
+                // 0 次失败→5s；1→10s；2→20s；3→40s；4 次及以上→60s 封顶
+                const delay = taskPollFailCount === 0
+                    ? TASK_POLL_BASE_MS
+                    : Math.min(TASK_POLL_BASE_MS * Math.pow(2, taskPollFailCount), TASK_POLL_MAX_MS);
+                setTimeout(async () => {
+                    if (!taskPollInFlight) {
+                        taskPollInFlight = true;
+                        try {
+                            const ok = await pollTaskStatus();
+                            if (ok) taskPollFailCount = 0; // 成功：重置计数
+                            else taskPollFailCount += 1;   // 失败：计数 +1，延迟翻倍
+                        } finally {
+                            taskPollInFlight = false;      // 锁必须在 finally 释放，保证下一轮可触发
+                        }
+                    }
+                    scheduleTaskPoll();                    // 递归调度，永不中断链路
+                }, delay);
+            }
+
+            let dataPollInFlight = false;
+            let dataPollFailCount = 0;
+            const DATA_POLL_BASE_MS = 30000;
+            const DATA_POLL_MAX_MS = 120000;
+
+            function scheduleDataPoll() {
+                const delay = dataPollFailCount === 0
+                    ? DATA_POLL_BASE_MS
+                    : Math.min(DATA_POLL_BASE_MS * Math.pow(2, dataPollFailCount), DATA_POLL_MAX_MS);
+                setTimeout(async () => {
+                    if (!dataPollInFlight) {
+                        dataPollInFlight = true;
+                        try {
+                            const ok = await loadData();
+                            if (ok) dataPollFailCount = 0;
+                            else dataPollFailCount += 1;
+                        } finally {
+                            dataPollInFlight = false;
+                        }
+                    }
+                    scheduleDataPoll();
+                }, delay);
+            }
+
+            scheduleTaskPoll();
+            scheduleDataPoll();
         });

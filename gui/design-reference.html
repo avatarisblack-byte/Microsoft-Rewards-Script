@@ -123,10 +123,8 @@
                     </div>
                 </div>
 
-                <!-- Home 面板账号卡片（动态渲染，纵向堆叠与 panel-accounts 的 accounts-list 的 space-y-4 一致） -->
-                <div id="home-account-cards" class="space-y-4"></div>
-
-                <!-- 任务实时日志 -->
+                <!-- 任务实时日志（2026-08-21 布局重构）：置于「全局摘要 → 实时日志 → 账号列表」动线中部，
+                     上方为账户总数/今日收益汇总卡，下方为首个账号详情块 -->
                 <div class="bg-white p-6 rounded-2xl border border-gray-100 card-shadow">
                     <div class="flex flex-wrap justify-between items-center mb-3 gap-2">
                         <h3 class="text-base font-bold text-gray-800">任务实时日志</h3>
@@ -136,6 +134,9 @@
                         <p class="text-gray-400 text-xs">暂无任务日志。点击"启动任务"开始运行。</p>
                     </div>
                 </div>
+
+                <!-- Home 面板账号卡片（动态渲染，纵向堆叠与 panel-accounts 的 accounts-list 的 space-y-4 一致） -->
+                <div id="home-account-cards" class="space-y-4"></div>
             </div>
 
             <!-- 【面板 2：Accounts 标签页】 -->

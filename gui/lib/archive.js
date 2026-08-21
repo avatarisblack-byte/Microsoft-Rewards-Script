@@ -7,25 +7,38 @@ const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
 
-/** 跨平台：解压 zip 到目标目录（win32 用 PowerShell Expand-Archive，其他用 unzip） */
+/**
+ * 跨平台：解压 zip 到目标目录（win32 用 PowerShell Expand-Archive，其他用 unzip）。
+ * 路径传递（2026-08-21）：不再把路径拼进 -Command 字符串（临时目录含单引号等特殊字符
+ * 会中断命令，甚至构成命令注入面），改经环境变量传入，命令字符串为固定字面量。
+ */
 function unzipToDir(zipPath, destDir) {
     return new Promise((resolve, reject) => {
         const cmd = process.platform === 'win32'
-            ? { file: 'powershell.exe', args: ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${destDir}' -Force`] }
-            : { file: 'unzip', args: ['-o', zipPath, '-d', destDir] }
-        const ps = spawn(cmd.file, cmd.args)
+            ? {
+                  file: 'powershell.exe',
+                  args: ['-NoProfile', '-Command', 'Expand-Archive -LiteralPath $env:GUI_ARCHIVE_SRC -DestinationPath $env:GUI_ARCHIVE_DEST -Force'],
+                  env: { ...process.env, GUI_ARCHIVE_SRC: zipPath, GUI_ARCHIVE_DEST: destDir }
+              }
+            : { file: 'unzip', args: ['-o', zipPath, '-d', destDir], env: process.env }
+        const ps = spawn(cmd.file, cmd.args, { env: cmd.env })
         ps.on('error', () => reject(new Error('解压工具不可用 (需要 Windows PowerShell 或 unzip)')))
         ps.on('exit', code => code === 0 ? resolve() : reject(new Error(`解压失败 (code ${code})`)))
     })
 }
 
-/** 跨平台：将目录内容打包为 zip（win32 用 PowerShell Compress-Archive，其他用 zip） */
+/** 跨平台：将目录内容打包为 zip（win32 用 PowerShell Compress-Archive，其他用 zip）；路径经环境变量传递（同上） */
 function zipDir(stageDir, zipPath) {
     return new Promise((resolve, reject) => {
         const cmd = process.platform === 'win32'
-            ? { file: 'powershell.exe', args: ['-NoProfile', '-Command', `Compress-Archive -Path '${path.join(stageDir, '*')}' -DestinationPath '${zipPath}' -Force`] }
-            : { file: 'zip', args: ['-r', '-q', zipPath, '.'] }
-        const ps = spawn(cmd.file, cmd.args, { cwd: process.platform === 'win32' ? undefined : stageDir })
+            ? {
+                  file: 'powershell.exe',
+                  args: ['-NoProfile', '-Command', 'Compress-Archive -Path (Join-Path $env:GUI_ARCHIVE_SRC "*") -DestinationPath $env:GUI_ARCHIVE_DEST -Force'],
+                  env: { ...process.env, GUI_ARCHIVE_SRC: stageDir, GUI_ARCHIVE_DEST: zipPath },
+                  cwd: undefined
+              }
+            : { file: 'zip', args: ['-r', '-q', zipPath, '.'], env: process.env, cwd: stageDir }
+        const ps = spawn(cmd.file, cmd.args, { env: cmd.env, cwd: cmd.cwd })
         ps.on('error', () => reject(new Error('压缩工具不可用 (需要 Windows PowerShell 或 zip)')))
         ps.on('exit', code => code === 0 ? resolve() : reject(new Error(`压缩失败 (code ${code})`)))
     })

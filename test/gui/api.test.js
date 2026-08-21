@@ -212,6 +212,21 @@ describe('I-C 全局配置接口', () => {
             fs.writeFileSync(tplPath, tplBackup, 'utf-8')
         }
     })
+
+    test('I-C16 多次保存时 .bak 轮转为历史备份且保留最近 5 个【期望依据：固定 .bak 会被覆盖、无清理会无限堆积】', async () => {
+        const cfgPath = path.join(SB, 'config.json')
+        for (let i = 0; i < 7; i++) {
+            const r = await H.request(BASE, '/api/config', { method: 'PUT', json: { globalTimeout: `${30 + i}s` } })
+            assert.strictEqual(r.status, 200, `第 ${i + 1} 次保存失败`)
+            await new Promise(res => setTimeout(res, 5)) // 拉开时间戳，避免同一秒内轮转文件名相同
+        }
+        assert.ok(fs.existsSync(cfgPath + '.bak'), '最新备份 .bak 缺失')
+        const history = fs.readdirSync(SB).filter(f => f.startsWith('config.json.bak.'))
+        assert.strictEqual(history.length, 5, `历史备份应为 5 个，实际 ${history.length} 个: ${history.join(', ')}`)
+        // .bak 必须是最新一次写前的内容（第 6 次保存前 globalTimeout=35s）
+        const bak = JSON.parse(fs.readFileSync(cfgPath + '.bak', 'utf-8'))
+        assert.strictEqual(bak.globalTimeout, '35s', `.bak 不是最近一次写前的状态（实际 ${bak.globalTimeout}）`)
+    })
 })
 
 // ============ /api/gui-settings ============
@@ -418,6 +433,15 @@ describe('I-L 日志接口', () => {
     test('I-L05 DELETE /api/logs 应被拒绝【回归防护：读接口需限定 GET，避免任意方法命中读取分支】', async () => {
         const r = await H.request(BASE, '/api/logs', { method: 'DELETE' })
         assert.ok([404, 405].includes(r.status), `DELETE 被当作读取处理，返回 ${r.status}`)
+    })
+
+    test('I-L05b DELETE /api/logs/summary 与 /api/logs/:date 应被拒绝【回归防护：同类未动项——读接口需限定 GET】', async () => {
+        const sum = await H.request(BASE, '/api/logs/summary', { method: 'DELETE' })
+        assert.strictEqual(sum.status, 405, `summary 的 DELETE 被当作读取处理，返回 ${sum.status}`)
+        const date = await H.request(BASE, '/api/logs/2026-03-03', { method: 'DELETE' })
+        assert.strictEqual(date.status, 405, `:date 的 DELETE 被当作读取处理，返回 ${date.status}`)
+        const post = await H.request(BASE, '/api/logs/2026-03-03', { method: 'POST', json: {} })
+        assert.strictEqual(post.status, 405, `:date 的 POST 被当作读取处理，返回 ${post.status}`)
     })
 
     test('I-L06 导入接口参数校验（空体/非 zip/缺数据）均返回 400', async () => {

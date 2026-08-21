@@ -4,6 +4,7 @@
  */
 const fs = require('fs')
 const path = require('path')
+const cleanup = require('../cleanup')
 
 function buildNewAccount(body) {
     return {
@@ -23,8 +24,10 @@ function buildNewAccount(body) {
 }
 
 // 备份 .bak → 写回；失败自动恢复
+// 备份轮转（2026-08-21）：写前把旧 .bak 轮转为带时间戳的历史备份（保留最近 5 个）
 function backupAndWrite(accountsPath, nextAccounts, res, http, onOk) {
     const backupPath = accountsPath + '.bak'
+    cleanup.rotateBackup(accountsPath)
     try { fs.copyFileSync(accountsPath, backupPath) } catch (e) {
         http.sendJson(res, 500, { error: `备份 accounts.json 失败: ${e.message}` }); return
     }

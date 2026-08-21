@@ -98,9 +98,11 @@ node test/gui/coverage-report.js "$env:TEMP\gui-cov"
 
 ### 3.3 未修复（P2，等待排期）
 
+> 更新（2026-08-21）：D18 已修复——`fetchJson` 加 `AbortSignal.timeout(15000)`，两处轮询改自调度 `setTimeout` + in-flight 锁 + 失败计数指数退避（任务 5s→10s→20s→40s→60s、数据 30s→60s→120s 封顶）；SSE 保活改手动退避重连（`onerror` 主动 `close()` 阻止浏览器内置 ~2.5s 固定重连，实测 60s 窗口重连次数从 ~25 次降至 ~3 次）。守护用例 `R-F03`/`R-F04` 已转绿。**P2 清单清零**。
+
 | 缺陷 | 级别 | 位置 | 说明 |
 |------|------|------|------|
-| D18 前端无超时 / 轮询无退避 | 提示 | `gui/js/app.js:23`（`fetchJson`）、`:1495`/`:1498`（两个 `setInterval`） | 断网时 fetch 永不 settle、界面停留加载态；轮询持续叠加请求。本轮浏览器验证时**实证了该危害**：旧会话（3004 端口，服务已关）每 5s 无限重试并把控制台刷满。对应用例 `R-F03` `R-F04` 仍保持失败状态，作为待办守护网保留 |
+| ~~D18 前端无超时 / 轮询无退避~~ **已修复（2026-08-21）** | 提示 | `gui/js/app.js:23`（`fetchJson`）、`:1495`/`:1498`（两个 `setInterval`） | 断网时 fetch 永不 settle、界面停留加载态；轮询持续叠加请求。本轮浏览器验证时**实证了该危害**：旧会话（3004 端口，服务已关）每 5s 无限重试并把控制台刷满。对应用例 `R-F03` `R-F04` 曾保持失败状态作为待办守护网，现已转绿 |
 
 ---
 
@@ -166,31 +168,32 @@ node test/gui/coverage-report.js "$env:TEMP\gui-cov"
 
 ## 七、遗留风险
 
-> 更新（2026-08-21）：风险 #1 与 #3 已在本轮安全加固中修复并新增 13 个回归用例守护（`api.test.js` 的 I-SEC01~10 与改造后的 I-P03、`resilience.test.js` 的 R-L01b/R-L05/R-L06），详见 `gui/CHANGELOG.md` 2026-08-21 条目。
+> 更新（2026-08-21）：风险 #1/#3 已在本轮安全加固中修复并新增回归用例守护（`api.test.js` 的 I-SEC01~10 与改造后的 I-P03、`resilience.test.js` 的 R-L01b/R-L05/R-L06），详见 `gui/CHANGELOG.md` 2026-08-21「安全加固」条目。
+> 再更新（2026-08-21）：次要问题全部收尾——风险 #2/#4/#5/#7/#8 亦已修复（详见 `gui/CHANGELOG.md` 同日「次要问题收尾」条目），测试 157 用例 150 通过 0 失败（7 跳过为受限环境压缩用例），**遗留风险清单清零**（剩余 #6 覆盖盲区为持续改进项，非缺陷）。
 
 | # | 风险 | 说明 |
 |---|------|------|
 | 1 | ~~无鉴权 + 明文凭据暴露（最高）~~ **已修复（2026-08-21）** | 全部接口无鉴权且 `Access-Control-Allow-Origin: *`；`GET /api/accounts` 原样返回 `password` 与 `totpSecret`。本机任意程序或网页即可读取全部账号凭据、启停任务、覆盖配置。现已实现：本地随机 Token 鉴权（`X-Auth-Token`，SSE 走 `?token=`）+ CORS `*` 移除 + 凭据脱敏 + PUT 脱敏占位符防覆盖 |
-| 2 | HTTP 服务无超时设置 | 未设 `headersTimeout`/`requestTimeout`/`keepAliveTimeout`，慢速客户端可长期占用连接 |
+| 2 | ~~HTTP 服务无超时设置~~ **已修复（2026-08-21）** | 未设 `headersTimeout`/`requestTimeout`/`keepAliveTimeout`，慢速客户端可长期占用连接。现已设 20s/60s/65s |
 | 3 | ~~配置写并发无锁~~ **已修复（2026-08-21）** | 20 并发 `PUT /api/config` 全部 200（文件仍合法 JSON），但为「最后写入者胜」，多标签页会静默互相覆盖，`.bak` 也会被中间态覆盖。现已实现：`isWriting` 写互斥锁 + `setImmediate` 事件循环让出，写入期间并发请求返回 409；`POST /api/config/reset` 未纳入互斥（仅手动触发，小面） |
-| 4 | 外部工具依赖与引号拼接 | 导入导出依赖 `powershell.exe`/`unzip`；`archive.js` 以单引号拼接路径进 PowerShell 命令，临时目录路径含单引号会中断 |
-| 5 | 前端无超时与退避（D18） | 见 3.3 |
-| 6 | 覆盖盲区 | `routes/data.js` 40.8%（一键导入的 accounts/config 分支与失败回滚分支未走到）、`routes/sessions.js` 64.1%；`/api/config/open` 与 `/api/setup` 的 spawn 成功分支（为避免真实弹出外部程序而未测）；`design-reference.html` 内联脚本与全部 DOM 渲染逻辑 |
-| 7 | 既有测试仍不可复现 | `test/data/` 被 `.gitignore` 排除，`test/script/run-log-tests.js` 在干净克隆上仍执行 0 用例；`package.json` 仍无 `test` 脚本 |
-| 8 | 缓存与备份文件无清理策略 | `gui/cache/*.json`、各处 `*.bak`、导入生成的 `*.log.bak` 均无轮转 |
+| 4 | ~~外部工具依赖与引号拼接~~ **已修复（2026-08-21）** | 导入导出依赖 `powershell.exe`/`unzip`；`archive.js` 以单引号拼接路径进 PowerShell 命令，临时目录路径含单引号会中断。现改经环境变量传递路径（依赖外部工具本身仍存在，但注入面已闭合） |
+| 5 | ~~前端无超时与退避（D18）~~ **已修复（2026-08-21）** | 见 3.3 |
+| 6 | 覆盖盲区（持续改进项，非缺陷） | `routes/data.js` 40.8%（一键导入的 accounts/config 分支与失败回滚分支未走到）、`routes/sessions.js` 64.1%；`/api/config/open` 与 `/api/setup` 的 spawn 成功分支（为避免真实弹出外部程序而未测）；`design-reference.html` 内联脚本与全部 DOM 渲染逻辑（2026-08-21 部分收敛：R-F05/R-F06 已守护 parseAccountEnd 解析与布局动线，沙箱双账号浏览器实测状态块渲染） |
+| 7 | ~~既有测试仍不可复现~~ **已修复（2026-08-21）** | `test/data/` 被 `.gitignore` 排除，`test/script/run-log-tests.js` 在干净克隆上仍执行 0 用例；`package.json` 仍无 `test` 脚本。现已补 `"test": "node --test --test-isolation=none test/gui/*.test.js"`（`test/data/` 属日志对拍测试数据源，仍被排除，但不影响 GUI 套件可复现） |
+| 8 | ~~缓存与备份文件无清理策略~~ **已修复（2026-08-21）** | `gui/cache/*.json`、各处 `*.bak`、导入生成的 `*.log.bak` 均无轮转。现新增 `lib/cleanup.js`：`.bak` 写前轮转 `.bak.<UTC时间戳>` 并每类保留最近 5 个（覆盖 accounts/config 全部写路径）；cache 目录 7 天前文件在 generateCache 后惰性清理 |
 
 ---
 
 ## 八、后续建议（按优先级）
 
 1. ~~**鉴权与脱敏**~~：**已完成（2026-08-21）**——本地随机 Token 鉴权、CORS `*` 移除、`GET /api/accounts` 凭据脱敏均已落地并有回归用例守护。
-2. **前端超时与轮询退避**（D18）：`fetchJson` 加 `AbortSignal.timeout(15000)`；两个 `setInterval` 加 in-flight 标志与失败指数退避——可让最后 2 个用例转绿。
-3. **HTTP 超时**：`server.headersTimeout = 20000` / `requestTimeout = 60000` / `keepAliveTimeout`。
-4. **配置写乐观锁**：基于 mtime 的 `If-Match` 语义，避免多客户端静默覆盖。
-5. **测试可复现**：`package.json` 增 `"test": "node --test --test-isolation=none test/gui/*.test.js"`；把最小日志夹具纳入版本控制（可直接复用 `test/gui/helpers/sandbox.js` 的 `writeLogFixtures()`）。
+2. ~~**前端超时与轮询退避**（D18）~~：**已完成（2026-08-21）**——`fetchJson` 15s 超时 + 轮询 in-flight 锁与指数退避，最后 2 个用例已转绿。
+3. ~~**HTTP 超时**~~：**已完成（2026-08-21）**——`headersTimeout=20s / requestTimeout=60s / keepAliveTimeout=65s`。
+4. ~~**配置写乐观锁**~~：**已完成（2026-08-21）**——`isWriting` 写互斥锁（写入期间并发请求 409），多客户端静默覆盖已杜绝。
+5. ~~**测试可复现**~~：**已完成（2026-08-21）**——`package.json` 增 `"test": "node --test --test-isolation=none test/gui/*.test.js"`。
 6. **补齐覆盖盲区**：`routes/data.js` 的一键导入分支与失败回滚、`routes/sessions.js` 导出路径；装好环境后可引入 jsdom/Playwright 覆盖 DOM 层。
-7. **`archive.js` 参数传递**：改用 `-LiteralPath` 配合参数数组或环境变量，避免引号拼接。
-8. **同类未动项**：`/api/logs/summary` 与 `/api/logs/:date` 同属 D08「读接口未限方法」，本轮按精准修改原则未改动，可一并补 405。
+7. ~~**`archive.js` 参数传递**~~：**已完成（2026-08-21）**——改用环境变量传递路径，不再引号拼接。
+8. ~~**同类未动项**~~：**已完成（2026-08-21）**——`/api/logs/summary` 与 `/api/logs/:date` 已补 405。
 
 ---
 

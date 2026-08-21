@@ -130,10 +130,10 @@ function createSandbox(tag) {
     const root = path.join(os.tmpdir(), `gui-test-${tag}-${process.pid}-${Date.now()}-${seq++}`)
     fs.mkdirSync(path.join(root, 'src'), { recursive: true })
 
-    // 复制 gui/ 副本（跳过 cache 与 .bak，避免带入宿主机运行时残留）
+    // 复制 gui/ 副本（跳过 cache 与 .bak/.bak.<时间戳> 历史备份，避免带入宿主机运行时残留）
     fs.cpSync(GUI_SRC, path.join(root, 'gui'), {
         recursive: true,
-        filter: src => !src.includes(`${path.sep}cache`) && !src.endsWith('.bak'),
+        filter: src => !src.includes(`${path.sep}cache`) && !path.basename(src).includes('.bak'),
     })
     fs.writeFileSync(path.join(root, 'gui', 'gui-settings.json'), JSON.stringify({ port: 3000 }, null, 4) + '\n', 'utf-8')
 
