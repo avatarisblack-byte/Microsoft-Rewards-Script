@@ -47,11 +47,23 @@ function referenceActivityPoints(filePath) {
 
 /**
  * 独立参考实现（与被测 summary.js 完全不同的代码路径）：
- * 按 (本地日期, 账户) 聚合，ACCOUNT-END 权威总计优先，无则 INFO 活动积分兜底。
+ * 按「运行段」聚合（ACCOUNT-START 为段边界）：段内有 ACCOUNT-END 用 END 权威总计，
+ * 段内无 END 用段内活动积分兜底；段收益归属段结束日（段内最后一行的本地日期）。
  * 用于动态生成期望值，避免硬编码失误。
+ * （2026-08-22 与 generateSummary 的「运行段粒度」口径同步，原按天二选一实现已废弃）
  */
 function referenceSummary(dir) {
-    const dayAcc = new Map() // date -> Map(account -> {endSum, hasEnd, act})
+    const dayAcc = new Map() // date -> Map(account -> points)
+    const seg = new Map()    // account -> { endSum, hasEnd, act, lastDate }
+    function settle(account) {
+        const s = seg.get(account)
+        if (!s) return
+        const points = s.hasEnd ? s.endSum : s.act
+        if (!dayAcc.has(s.lastDate)) dayAcc.set(s.lastDate, new Map())
+        const m = dayAcc.get(s.lastDate)
+        m.set(account, (m.get(account) || 0) + points)
+        seg.delete(account)
+    }
     for (const f of fs.readdirSync(dir).filter(x => x.endsWith('.log')).sort()) {
         for (const line of fs.readFileSync(path.join(dir, f), 'utf-8').split('\n')) {
             if (!line) continue
@@ -69,13 +81,23 @@ function referenceSummary(dir) {
             const d = new Date(utcTime)
             if (isNaN(d.getTime())) continue
             const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-            if (!dayAcc.has(dateKey)) dayAcc.set(dateKey, new Map())
-            const m = dayAcc.get(dateKey)
-            if (!m.has(account)) m.set(account, { endSum: 0, hasEnd: false, act: 0 })
-            const acc = m.get(account)
+            if (event === 'ACCOUNT-START') {
+                settle(account) // 上一运行段结算
+                seg.set(account, { start: true, endSum: 0, hasEnd: false, act: 0, lastDate: dateKey })
+                continue
+            }
+            let s = seg.get(account)
+            if (!s) {
+                // 兼容无 ACCOUNT-START 的旧格式：惰性开段（跨日切分，避免独立运行误合并）
+                seg.set(account, s = { start: false, endSum: 0, hasEnd: false, act: 0, lastDate: dateKey })
+            } else if (!s.start && s.lastDate !== dateKey) {
+                settle(account)
+                seg.set(account, s = { start: false, endSum: 0, hasEnd: false, act: 0, lastDate: dateKey })
+            }
+            s.lastDate = dateKey
             if (event === 'ACCOUNT-END') {
                 const tm = /总计:\s*\+(\d+)/.exec(message)
-                if (tm) { acc.endSum += parseInt(tm[1], 10); acc.hasEnd = true }
+                if (tm) { s.endSum += parseInt(tm[1], 10); s.hasEnd = true }
             } else if (level === 'INFO') {
                 let p = null
                 let mm = null
@@ -84,17 +106,17 @@ function referenceSummary(dir) {
                 else if (message.includes('阅读文章') && message.includes('获得积分=')) mm = /获得积分=(\d+)/.exec(message)
                 else if (event === 'SEARCH-BING' && message.includes('获得积分=')) mm = /获得积分=(\d+)\s+points/.exec(message)
                 if (mm) p = parseInt(mm[1], 10)
-                if (p !== null) acc.act += p
+                if (p !== null) s.act += p
             }
         }
     }
+    for (const account of [...seg.keys()]) settle(account) // 结算残留运行段
     const daily = []
     let grandTotal = 0
     const accTotals = {} // account -> { totalPoints, activeDays }
     for (const [date, m] of [...dayAcc.entries()].sort()) {
         const accounts = []
-        for (const [account, a] of [...m.entries()]) {
-            const points = a.hasEnd ? a.endSum : a.act
+        for (const [account, points] of [...m.entries()]) {
             accounts.push({ account, points })
             if (!accTotals[account]) accTotals[account] = { totalPoints: 0, activeDays: 0 }
             accTotals[account].totalPoints += points
@@ -296,7 +318,11 @@ function runAnalysisTests() {
         assert.strictEqual(dailyMap['2026-08-16'], refDaily['2026-08-16'])
     })
     check('B5 08-17 每日收益 = 142（两账户 52+90）', () => assert.strictEqual(dailyMap['2026-08-17'], 142))
-    check('B6 08-18 每日收益 = 447（三账户 33+142+272，与 RUN-END 一致）', () => assert.strictEqual(dailyMap['2026-08-18'], 447))
+    // B6 08-18 段粒度：avatar.is.black 多次 ACCOUNT-START（部分运行无 END）时，
+    // 收益 = 无 END 段活动积分 + 末段 ACCOUNT-END 权威（2026-08-22 修复验证点）
+    check(`B6 08-18 每日收益 = ${refDaily['2026-08-18']}（与段粒度参考一致）`, () => {
+        assert.strictEqual(dailyMap['2026-08-18'], refDaily['2026-08-18'])
+    })
 
     // B7 08-19 无 ACCOUNT-END（运行中截断）→ 走活动积分兜底，不崩溃且 > 0
     const ref0819 = referenceActivityPoints(path.join(DATA_DIR, '2026-08-19.log'))
@@ -319,7 +345,7 @@ function runAnalysisTests() {
         )
     })
     check('B10 accountTotals: LuMuggle116 = 272', () => assert.strictEqual(refAcc['LuMuggle116'], 272))
-    check(`B11 accountTotals: avatar.is.black = ${refAcc['avatar.is.black']}（77+52+33+08-15兜底101+08-19兜底${ref0819}）与被测一致`, () => {
+    check(`B11 accountTotals: avatar.is.black = ${refAcc['avatar.is.black']}（77+52+33+08-15兜底101+08-18多次运行92+08-19兜底${ref0819}）与被测一致`, () => {
         const uut = summary.accountTotals.find(a => a.account === 'avatar.is.black')
         assert.strictEqual(uut.totalPoints, refAcc['avatar.is.black'])
     })

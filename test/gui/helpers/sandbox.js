@@ -100,13 +100,19 @@ function writeLogFixtures(logsDir) {
 
     const d2 = '2026-03-03T04:00:00.000Z'
     const day2 = [
+        // 注意：真实日志每次运行必有 ACCOUNT-START（运行段边界）。此处显式写出两次 START，
+        // 与 generateSummary 的「运行段粒度」统计口径保持一致（2026-08-22）
+        logLine(d2, 'tester.a', 'INFO', '主进程', 'ACCOUNT-START', '开始处理账户: tester.a@example.com | 地理位置: auto'),
         logLine(d2, 'tester.a', 'INFO', '主进程', 'ACCOUNT-END', '已完成账户: tester.a@example.com | 总计: +30 | 原始: 600 → 新值: 630 | 持续时间: 300.0秒'),
+        logLine(d2, 'tester.a', 'INFO', '主进程', 'ACCOUNT-START', '开始处理账户: tester.a@example.com | 地理位置: auto'),
         logLine(d2, 'tester.a', 'INFO', '主进程', 'ACCOUNT-END', '已完成账户: tester.a@example.com | 总计: +20 | 原始: 630 → 新值: 650 | 持续时间: 200.0秒'),
+        logLine(d2, 'tester.b', 'INFO', '主进程', 'ACCOUNT-START', '开始处理账户: tester.b@example.com | 地理位置: auto'),
         logLine(d2, 'tester.b', 'INFO', '主进程', 'ACCOUNT-END', '已完成账户: tester.b@example.com | 总计: +70 | 原始: 100 → 新值: 170 | 持续时间: 500.0秒'),
     ].join('\n') + '\n'
 
     const d3 = '2026-03-04T04:00:00.000Z'
     const day3 = [
+        logLine(d3, 'tester.b', 'INFO', '主进程', 'ACCOUNT-START', '开始处理账户: tester.b@example.com | 地理位置: auto'),
         logLine(d3, 'tester.b', 'INFO', '移动端', 'URL-REWARD', '完成UrlReward | offerId=Gamification_DailySet_Child1 | 状态=200 | 获得积分=10 | 新余额=180'),
         logLine(d3, 'tester.b', 'INFO', '移动端', 'DAILY-CHECK-IN', '完成每日签到 | 类型=101 | 获得积分=15 | 原始余额=180 | 新余额=195'),
         logLine(d3, 'tester.b', 'INFO', '移动端', 'READ-TO-EARN', '阅读文章 1/10 | 状态=200 | 获得积分=3 | 新余额=198'),
