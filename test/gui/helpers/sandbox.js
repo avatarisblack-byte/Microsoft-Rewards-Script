@@ -194,12 +194,27 @@ function pickPort() {
     return 20000 + Math.floor(Math.random() * 30000)
 }
 
+// ---------- 鉴权令牌（2026-08-21 引入本地 Token 鉴权后） ----------
+// 按 base 缓存令牌：同一进程内多个测试文件各自启动沙箱服务，令牌必须与服务实例一一对应；
+// 首次请求时惰性获取，并发请求共享同一 Promise 避免重复请求。
+const tokenCache = new Map()
+
+function getAuthToken(base) {
+    if (!tokenCache.has(base)) {
+        tokenCache.set(base, fetch(`${base}/api/auth/token`).then(async res => {
+            if (!res.ok) throw new Error(`获取测试令牌失败: HTTP ${res.status}`)
+            return (await res.json()).token
+        }))
+    }
+    return tokenCache.get(base)
+}
+
 async function waitForServer(base, timeoutMs = 8000) {
     const deadline = Date.now() + timeoutMs
     let lastErr = null
     while (Date.now() < deadline) {
         try {
-            const res = await fetch(`${base}/api/task`)
+            const res = await fetch(`${base}/api/auth/token`)
             if (res.ok) { await res.arrayBuffer(); return true }
         } catch (e) { lastErr = e }
         await new Promise(r => setTimeout(r, 100))
@@ -211,11 +226,15 @@ async function waitForServer(base, timeoutMs = 8000) {
 
 /**
  * 发送请求并归一化返回 { status, json, buffer, headers }
- * options: { method, json（自动序列化）, raw（原样发送的字符串/Buffer）, headers, signal }
+ * options: { method, json（自动序列化）, raw（原样发送的字符串/Buffer）, headers, signal,
+ *            auth（false 时不自动携带 X-Auth-Token，用于鉴权失败用例） }
  */
 async function request(base, urlPath, options = {}) {
-    const { method = 'GET', json, raw, headers = {}, signal, timeoutMs = 20000 } = options
+    const { method = 'GET', json, raw, headers = {}, signal, timeoutMs = 20000, auth = true } = options
     const init = { method, headers: { ...headers }, signal: signal ?? AbortSignal.timeout(timeoutMs) }
+    if (auth) {
+        init.headers['X-Auth-Token'] = await getAuthToken(base)
+    }
     if (raw !== undefined) {
         init.body = raw
         init.headers['Content-Type'] = init.headers['Content-Type'] || 'application/json'
@@ -324,6 +343,7 @@ module.exports = {
     startServerInProcess,
     pickPort,
     waitForServer,
+    getAuthToken,
     request,
     makeZip,
     crc32,

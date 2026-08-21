@@ -3,6 +3,7 @@
         let configCache = null;
         let statsCache = null; // /api/stats 缓存（今日收益/总收益/每日趋势），30s 轮询刷新
         let guiSettingsCache = { port: 3000 }; // /api/gui-settings 缓存（GUI 专属配置：端口等）
+        let authToken = null; // 本地访问令牌：页面加载时从 /api/auth/token 获取，所有请求自动携带
         // 首次打开"环境安装"提示弹窗：localStorage 持久化"不再提示"状态（存在即不再弹出）
         const ENV_SETUP_DISMISS_KEY = 'gui-env-setup-dismissed';
 
@@ -21,8 +22,29 @@
                 .replace(/'/g, '&#39;');
         }
 
+        // 页面加载时获取并缓存访问令牌（服务每次启动都会重新生成）
+        async function fetchAuthToken() {
+            const res = await fetch('/api/auth/token');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            authToken = data.token;
+        }
+
+        // 统一 API 请求封装：自动携带 X-Auth-Token；401 时提示并刷新页面
+        async function apiFetch(url, options = {}) {
+            const headers = { ...(options.headers || {}) };
+            if (authToken) headers['X-Auth-Token'] = authToken;
+            const res = await fetch(url, { ...options, headers });
+            if (res.status === 401) {
+                alert('本地访问令牌已失效（服务可能已重启），页面即将刷新');
+                location.reload();
+                throw new Error('HTTP 401 未授权');
+            }
+            return res;
+        }
+
         async function fetchJson(url) {
-            const res = await fetch(url);
+            const res = await apiFetch(url);
             if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
             return res.json();
         }
@@ -81,7 +103,7 @@
 
         async function taskStart() {
             try {
-                const res = await fetch('/api/start', { method: 'POST' });
+                const res = await apiFetch('/api/start', { method: 'POST' });
                 const data = await res.json();
                 if (!res.ok) {
                     alert(`❌ 启动失败: ${data.error || '未知错误'}`);
@@ -97,7 +119,7 @@
 
         async function taskStop() {
             try {
-                const res = await fetch('/api/stop', { method: 'POST' });
+                const res = await apiFetch('/api/stop', { method: 'POST' });
                 const data = await res.json();
                 if (!res.ok) {
                     alert(`❌ 停止失败: ${data.error || '未知错误'}`);
@@ -550,7 +572,7 @@
             }
 
             try {
-                const res = await fetch('/api/logs/export');
+                const res = await apiFetch('/api/logs/export');
                 if (!res.ok) {
                     let msg = `HTTP ${res.status}`;
                     try {
@@ -614,7 +636,7 @@
                     reader.readAsDataURL(file);
                 });
 
-                const res = await fetch('/api/logs/import', {
+                const res = await apiFetch('/api/logs/import', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ filename: file.name, dataBase64 })
@@ -646,7 +668,7 @@
             }
 
             try {
-                const res = await fetch('/api/data/export');
+                const res = await apiFetch('/api/data/export');
                 if (!res.ok) {
                     let msg = `HTTP ${res.status}`;
                     try {
@@ -715,7 +737,7 @@
                     reader.readAsDataURL(file);
                 });
 
-                const res = await fetch('/api/data/import', {
+                const res = await apiFetch('/api/data/import', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ filename: file.name, dataBase64 })
@@ -747,7 +769,7 @@
             }
 
             try {
-                const res = await fetch('/api/sessions/export');
+                const res = await apiFetch('/api/sessions/export');
                 if (!res.ok) {
                     let msg = `HTTP ${res.status}`;
                     try {
@@ -793,7 +815,7 @@
             isShuttingDown = true; // 确认后锁定，避免第二次点击再触发 confirm
 
             try {
-                const res = await fetch('/api/shutdown', { method: 'POST' });
+                const res = await apiFetch('/api/shutdown', { method: 'POST' });
                 if (!res.ok) {
                     let msg = `HTTP ${res.status}`;
                     try {
@@ -831,7 +853,7 @@
             if (!confirm(warning)) return;
 
             try {
-                const res = await fetch('/api/setup', { method: 'POST' });
+                const res = await apiFetch('/api/setup', { method: 'POST' });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
                 alert(`✅ ${data.message}\n\n请在独立窗口观察进度，完成前请勿重复点击。`);
@@ -869,7 +891,7 @@
                     reader.readAsDataURL(file);
                 });
 
-                const res = await fetch('/api/sessions/import', {
+                const res = await apiFetch('/api/sessions/import', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ filename: file.name, dataBase64 })
@@ -1030,7 +1052,7 @@
         function saveConfigSilent(payload) {
             configSaveChain = configSaveChain.then(async () => {
                 try {
-                    const res = await fetch('/api/config', {
+                    const res = await apiFetch('/api/config', {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
@@ -1069,7 +1091,7 @@
 
         // 保存 GUI 专属设置（端口等）：独立接口 /api/gui-settings，不混入脚本 config.json
         function saveGuiSettingSilent(payload) {
-            return fetch('/api/gui-settings', {
+            return apiFetch('/api/gui-settings', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -1147,7 +1169,7 @@
             }
 
             try {
-                const res = await fetch('/api/config/open', { method: 'POST' });
+                const res = await apiFetch('/api/config/open', { method: 'POST' });
                 const data = await res.json();
                 if (!res.ok) {
                     throw new Error(data.error || `HTTP ${res.status}`);
@@ -1177,7 +1199,7 @@
             }
 
             try {
-                const res = await fetch('/api/config/reset', { method: 'POST' });
+                const res = await apiFetch('/api/config/reset', { method: 'POST' });
                 const data = await res.json();
                 if (!res.ok) {
                     throw new Error(data.error || `HTTP ${res.status}`);
@@ -1212,7 +1234,7 @@
             }
 
             try {
-                const res = await fetch(`/api/accounts/${encodeURIComponent(email)}`, {
+                const res = await apiFetch(`/api/accounts/${encodeURIComponent(email)}`, {
                     method: 'DELETE'
                 });
                 const data = await res.json();
@@ -1258,7 +1280,7 @@
             }
 
             try {
-                const res = await fetch('/api/accounts', {
+                const res = await apiFetch('/api/accounts', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1397,7 +1419,7 @@
             saveBtn.innerText = '保存中...';
 
             try {
-                const res = await fetch(`/api/accounts/${encodeURIComponent(currentEditingEmail)}`, {
+                const res = await apiFetch(`/api/accounts/${encodeURIComponent(currentEditingEmail)}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(updatedAccount)
@@ -1447,7 +1469,7 @@
         }
 
         // ===== 初始化 =====
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
             const navItems = document.querySelectorAll('.nav-item');
             const panels = document.querySelectorAll('.content-panel');
             const contentPanels = document.getElementById('contentPanels');
@@ -1474,6 +1496,15 @@
                 });
             });
 
+            // 先获取本地访问令牌：后续所有 /api/* 请求与 SSE 保活都依赖它。
+            // 获取失败说明本地服务未就绪，直接提示并停止初始化（避免页面停留在无限加载态）
+            try {
+                await fetchAuthToken();
+            } catch (error) {
+                alert(`❌ 无法连接本地服务: ${error.message}`);
+                return;
+            }
+
             // 加载真实数据
             loadData();
 
@@ -1496,10 +1527,11 @@
             pollTaskStatus();
 
             // 网页长连接保活：通过 EventSource 建立 SSE 长连接。
+            // EventSource 无法自定义请求头，令牌改走 ?token= 查询参数（后端同样校验）。
             // 页面刷新时会短暂断开旧连接并重建新连接（EventSource 自带重连，且 DOMContentLoaded
             // 重新执行会再次 new EventSource）；后端对"全部断开"采用静默期（5s）延迟销毁，
             // 因此刷新页面不会导致服务掉线，仅当真正关闭页面且超过静默期才退出。
-            const keepaliveSource = new EventSource('/api/keepalive');
+            const keepaliveSource = new EventSource(`/api/keepalive?token=${encodeURIComponent(authToken)}`);
             keepaliveSource.onerror = () => {
                 // 服务端退出后连接错误属预期，忽略以免刷 console；EventSource 会自动重连
             };

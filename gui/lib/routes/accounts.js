@@ -53,9 +53,16 @@ function handleAccounts(req, res, pathname, ctx) {
         const logSummary = ctx.logCache.getCachedData().accountSummary
         const logMap = {}
         for (const s of logSummary) logMap[s.account] = s
+        // 凭据脱敏（2026-08-21）：password/totpSecret 原样下发会让任意能访问本机的进程/网页
+        // 读走全部账号凭据；列表渲染只需要邮箱与运行状态，密码一律显示为 ******。
         const enriched = accounts.map(a => {
             const user = (typeof a?.email === 'string' ? a.email : '').split('@')[0]
-            return { ...a, status: logMap[user] || { account: user, entries: 0 } }
+            return {
+                ...a,
+                password: '******',
+                totpSecret: '******',
+                status: logMap[user] || { account: user, entries: 0 }
+            }
         })
         http.sendJson(res, 200, { accounts: enriched, logSummary })
         return true
@@ -144,7 +151,13 @@ function handleAccounts(req, res, pathname, ctx) {
                 }
                 const idx = accounts.findIndex(a => a.email === targetEmail)
                 if (idx === -1) { return http.sendJson(res, 404, { error: `未找到账号: ${targetEmail}` }) }
-                accounts[idx] = { ...accounts[idx], ...body }
+                // 脱敏占位保护（2026-08-21）：GET 返回的 password/totpSecret 是 '******'，
+                // 前端编辑其他字段时若原样回传该占位符，会覆盖磁盘上的真实凭据。
+                // 占位值视为「未修改」，从合并体剔除后保留磁盘原值。
+                const mergedBody = { ...body }
+                if (mergedBody.password === '******') delete mergedBody.password
+                if (mergedBody.totpSecret === '******') delete mergedBody.totpSecret
+                accounts[idx] = { ...accounts[idx], ...mergedBody }
                 backupAndWrite(accountsPath, accounts, res, http, backupPath => ({
                     success: true, message: `账号 ${targetEmail} 配置已保存`, backup: path.basename(backupPath), account: accounts[idx]
                 }))

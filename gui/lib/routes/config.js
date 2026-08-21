@@ -6,6 +6,11 @@ const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
 
+// 配置写互斥（2026-08-21）：多标签页并发保存时，原先「最后写入者胜」会静默覆盖对方的修改，
+// .bak 备份也会被中间态覆盖。与 taskManager 的 starting 互斥同思路：
+// 写入期间到达的新请求直接返回 409，由前端稍后重试，保证同一时刻只有一个写入者。
+let isWriting = false
+
 // 顶层字段白名单（来源：src/config.example.json 的顶层键）。
 // 语义是白名单而非黑名单：PUT 走 { ...current, ...body } 合并写回，未列入的字段会直接落盘
 // 污染脚本配置。新增配置项时需同步此处。
@@ -121,11 +126,21 @@ function handleConfig(req, res, pathname, ctx) {
         return true
     }
 
-    // PUT /api/config
+    // PUT /api/config（写互斥：写入期间到达的并发请求直接 409，避免静默覆盖）
     if (pathname === '/api/config' && req.method === 'PUT') {
+        if (isWriting) {
+            http.sendJson(res, 409, { error: '系统正忙，请稍后重试' })
+            return true
+        }
+        isWriting = true
         return (async () => {
             try {
                 const body = await http.readBody(req)
+                // 让出当前宏任务（2026-08-21）：本地回环下小请求体常与请求头同包到达，
+                // 若不让出，本请求会在下一个并发请求的 request 回调之前完成整个读-合并-写
+                // 并释放锁，锁形同虚设（20 并发实测仍全部 200、最后写入者胜）。
+                // 让出后同一批到达的并发请求先完成锁检查（返回 409），本请求独占写过程。
+                await new Promise(resolve => setImmediate(resolve))
                 if (!body || typeof body !== 'object' || Array.isArray(body)) {
                     return http.sendJson(res, 400, { error: '请求体必须是一个配置对象' })
                 }
@@ -171,6 +186,9 @@ function handleConfig(req, res, pathname, ctx) {
                 return http.sendJson(res, 200, { success: true, message: '全局配置已保存', backup: path.basename(backupPath), config: merged })
             } catch (error) {
                 return http.sendJson(res, 400, { error: error.message || '无效请求' })
+            } finally {
+                // 无论成功失败都释放写锁，避免异常路径下锁永久占用导致后续保存全部 409
+                isWriting = false
             }
         })()
     }

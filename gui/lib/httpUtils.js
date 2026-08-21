@@ -13,9 +13,11 @@ function sendJson(res, statusCode, data) {
         statusCode = 500
         payload = JSON.stringify({ error: `响应序列化失败: ${e.message}` })
     }
+    // CORS 加固（2026-08-21）：不再返回 Access-Control-Allow-Origin: *。
+    // 原配置下任意网页都可跨域读取本机接口（含账号凭据）并伪造请求；
+    // 移除后浏览器仅允许同源访问，跨站页面连响应体都读不到。
     res.writeHead(statusCode, {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Access-Control-Allow-Origin': '*'
+        'Content-Type': 'application/json; charset=utf-8'
     })
     res.end(payload)
 }

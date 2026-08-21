@@ -16,6 +16,7 @@ const { test, describe, before, after } = require('node:test')
 const assert = require('node:assert')
 const fs = require('node:fs')
 const path = require('node:path')
+const http = require('node:http')
 
 const H = require('./helpers/sandbox')
 
@@ -256,11 +257,22 @@ describe('R-L 生命周期与静默期（劫持 process.exit 观测）', () => {
         process.exit = code => { exitCalls.push(code === undefined ? 0 : code) }
     })
 
-    test('R-L01 SSE 保活连接可正常建立', async () => {
+    test('R-L01 SSE 保活连接可正常建立（携带 X-Auth-Token）', async () => {
         liveController = new AbortController()
-        const res = await fetch(`${BASE}/api/keepalive`, { signal: liveController.signal })
+        const token = await H.getAuthToken(BASE)
+        const res = await fetch(`${BASE}/api/keepalive`, {
+            headers: { 'X-Auth-Token': token },
+            signal: liveController.signal
+        })
         assert.strictEqual(res.status, 200)
         assert.match(res.headers.get('content-type') || '', /text\/event-stream/)
+    })
+
+    test('R-L01b 无令牌的 keepalive 请求返回 401 且不建立 SSE', async () => {
+        const res = await fetch(`${BASE}/api/keepalive`)
+        assert.strictEqual(res.status, 401)
+        const body = await res.text()
+        assert.match(body, /未授权/)
     })
 
     test('R-L02 页面刷新（断开后 2s 内重连）不应触发服务退出', async () => {
@@ -268,7 +280,11 @@ describe('R-L 生命周期与静默期（劫持 process.exit 观测）', () => {
         await sleep(2000)
         assert.deepStrictEqual(exitCalls, [], `静默期未结束即退出: ${JSON.stringify(exitCalls)}`)
         liveController = new AbortController()
-        const res = await fetch(`${BASE}/api/keepalive`, { signal: liveController.signal })
+        const token = await H.getAuthToken(BASE)
+        const res = await fetch(`${BASE}/api/keepalive`, {
+            headers: { 'X-Auth-Token': token },
+            signal: liveController.signal
+        })
         assert.strictEqual(res.status, 200)
         await sleep(500)
         assert.deepStrictEqual(exitCalls, [], '重连后仍触发了退出')
@@ -287,5 +303,51 @@ describe('R-L 生命周期与静默期（劫持 process.exit 观测）', () => {
         assert.strictEqual(r.json.success, true)
         await sleep(800)
         assert.deepStrictEqual(exitCalls, [0], '未在响应后触发退出')
+    })
+
+    test('R-L05 已有存活实例（pid 文件）时第二个实例应友好退出【期望依据：Windows 上 SO_REUSEADDR 允许重复 bind，端口检测会漏判，需 pid 文件兜底】', () => {
+        exitCalls = []
+        // 用新沙箱副本绕过 require 缓存；伪造指向存活进程（测试进程自身）的 pid 文件
+        const dupSB = H.createSandbox('dup')
+        fs.writeFileSync(path.join(dupSB, '.gui.pid'), String(process.pid), 'utf-8')
+        // 测试环境的 process.exit 是记录函数（不真正退出），此处临时换成抛异常以中断
+        // server.js 的后续执行（否则会继续 listen 泄漏句柄）
+        const recordExit = process.exit
+        let exitCode = null
+        process.exit = code => { exitCode = code; throw new Error('EXIT_CALLED') }
+        try {
+            assert.throws(() => H.loadGuiModule(dupSB, 'server.js'), /EXIT_CALLED/)
+        } finally {
+            process.exit = recordExit
+            H.removeSandbox(dupSB)
+        }
+        assert.strictEqual(exitCode, 1, `检测到存活实例未以退出码 1 终止（实际 ${exitCode}）`)
+    })
+
+    test('R-L06 pid 文件残留但进程已死时应正常启动（陈旧文件不阻断）', async () => {
+        exitCalls = []
+        const dupSB = H.createSandbox('dup')
+        // 999999999 在 Windows/Linux 上都不是有效存活进程 → 视为陈旧 pid 文件
+        fs.writeFileSync(path.join(dupSB, '.gui.pid'), '999999999', 'utf-8')
+        // 让副本服务监听独立随机端口（避免与主服务端口冲突触发 EADDRINUSE 兜底），并捕获实例以便关闭
+        const prevPort = process.env.PORT
+        process.env.PORT = String(H.pickPort())
+        const originalCreate = http.createServer
+        let dupServer = null
+        http.createServer = function (...args) {
+            dupServer = originalCreate.apply(this, args)
+            return dupServer
+        }
+        try {
+            H.loadGuiModule(dupSB, 'server.js')
+            await sleep(100)
+            assert.deepStrictEqual(exitCalls, [], `陈旧 pid 文件不应阻断启动: ${JSON.stringify(exitCalls)}`)
+        } finally {
+            http.createServer = originalCreate
+            if (prevPort === undefined) delete process.env.PORT
+            else process.env.PORT = prevPort
+            if (dupServer) await new Promise(resolve => dupServer.close(resolve))
+            H.removeSandbox(dupSB)
+        }
     })
 })

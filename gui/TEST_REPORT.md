@@ -166,11 +166,13 @@ node test/gui/coverage-report.js "$env:TEMP\gui-cov"
 
 ## 七、遗留风险
 
+> 更新（2026-08-21）：风险 #1 与 #3 已在本轮安全加固中修复并新增 13 个回归用例守护（`api.test.js` 的 I-SEC01~10 与改造后的 I-P03、`resilience.test.js` 的 R-L01b/R-L05/R-L06），详见 `gui/CHANGELOG.md` 2026-08-21 条目。
+
 | # | 风险 | 说明 |
 |---|------|------|
-| 1 | **无鉴权 + 明文凭据暴露（最高）** | 全部接口无鉴权且 `Access-Control-Allow-Origin: *`；`GET /api/accounts` 原样返回 `password` 与 `totpSecret`。本机任意程序或网页即可读取全部账号凭据、启停任务、覆盖配置 |
+| 1 | ~~无鉴权 + 明文凭据暴露（最高）~~ **已修复（2026-08-21）** | 全部接口无鉴权且 `Access-Control-Allow-Origin: *`；`GET /api/accounts` 原样返回 `password` 与 `totpSecret`。本机任意程序或网页即可读取全部账号凭据、启停任务、覆盖配置。现已实现：本地随机 Token 鉴权（`X-Auth-Token`，SSE 走 `?token=`）+ CORS `*` 移除 + 凭据脱敏 + PUT 脱敏占位符防覆盖 |
 | 2 | HTTP 服务无超时设置 | 未设 `headersTimeout`/`requestTimeout`/`keepAliveTimeout`，慢速客户端可长期占用连接 |
-| 3 | 配置写并发无锁 | 20 并发 `PUT /api/config` 全部 200（文件仍合法 JSON），但为「最后写入者胜」，多标签页会静默互相覆盖，`.bak` 也会被中间态覆盖 |
+| 3 | ~~配置写并发无锁~~ **已修复（2026-08-21）** | 20 并发 `PUT /api/config` 全部 200（文件仍合法 JSON），但为「最后写入者胜」，多标签页会静默互相覆盖，`.bak` 也会被中间态覆盖。现已实现：`isWriting` 写互斥锁 + `setImmediate` 事件循环让出，写入期间并发请求返回 409；`POST /api/config/reset` 未纳入互斥（仅手动触发，小面） |
 | 4 | 外部工具依赖与引号拼接 | 导入导出依赖 `powershell.exe`/`unzip`；`archive.js` 以单引号拼接路径进 PowerShell 命令，临时目录路径含单引号会中断 |
 | 5 | 前端无超时与退避（D18） | 见 3.3 |
 | 6 | 覆盖盲区 | `routes/data.js` 40.8%（一键导入的 accounts/config 分支与失败回滚分支未走到）、`routes/sessions.js` 64.1%；`/api/config/open` 与 `/api/setup` 的 spawn 成功分支（为避免真实弹出外部程序而未测）；`design-reference.html` 内联脚本与全部 DOM 渲染逻辑 |
@@ -181,7 +183,7 @@ node test/gui/coverage-report.js "$env:TEMP\gui-cov"
 
 ## 八、后续建议（按优先级）
 
-1. **鉴权与脱敏**：启动时生成本机 token 注入页面、接口校验；去掉 CORS `*`；`GET /api/accounts` 对 `password`/`totpSecret` 脱敏。
+1. ~~**鉴权与脱敏**~~：**已完成（2026-08-21）**——本地随机 Token 鉴权、CORS `*` 移除、`GET /api/accounts` 凭据脱敏均已落地并有回归用例守护。
 2. **前端超时与轮询退避**（D18）：`fetchJson` 加 `AbortSignal.timeout(15000)`；两个 `setInterval` 加 in-flight 标志与失败指数退避——可让最后 2 个用例转绿。
 3. **HTTP 超时**：`server.headersTimeout = 20000` / `requestTimeout = 60000` / `keepAliveTimeout`。
 4. **配置写乐观锁**：基于 mtime 的 `If-Match` 语义，避免多客户端静默覆盖。

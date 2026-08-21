@@ -21,9 +21,9 @@
 | 文件 | 职责 |
 |------|------|
 | `gui/design-reference.html` | 控制面板前端页面（HTML 结构 + Tailwind CDN + Chart.js CDN，样式与逻辑已拆分至 css/ js/；含首次打开"环境安装"提示弹窗） |
-| `gui/server.js` | 入口（≈59 行）：组装 ctx → 按序调用 lib/routes/ 各路由 → `--generate-summary` CLI → listen（2026-08-18 重构）；分发层包 try/catch 并为异步路由的 Promise 补 catch，路由内逃逸的异常统一转 500，不再成为 uncaughtException 终止进程（2026-08-20 加固） |
+| `gui/server.js` | 入口（≈59 行）：组装 ctx → 按序调用 lib/routes/ 各路由 → `--generate-summary` CLI → listen（2026-08-18 重构）；分发层包 try/catch 并为异步路由的 Promise 补 catch，路由内逃逸的异常统一转 500，不再成为 uncaughtException 终止进程（2026-08-20 加固）；启动时生成 256 位随机 `AUTH_TOKEN`，新增免鉴权接口 `GET /api/auth/token` 供页面领取，所有 `/api/*` 请求统一校验 `X-Auth-Token`（SSE 的 EventSource 无法自定义请求头，`/api/keepalive` 额外支持 `?token=` 查询参数），不匹配返回 401；进程级单实例保护：项目根 `.gui.pid` 存活检测 + EADDRINUSE 兜底，检测到已有实例时友好提示并退出，防止多开并发写坏配置文件（2026-08-21 安全加固） |
 | `gui/lib/config.js` | 常量（PORT/ROOT/GUI_DIR/HTML_FILE/LOGS_DIR）+ resolveAccountsPath/resolveConfigPath/readJson（2026-08-18 新增）；writeGuiSettings 改为与现有设置合并写入（整体覆盖会清除 gui-settings.json 中的非端口设置）（2026-08-20 修复） |
-| `gui/lib/httpUtils.js` | sendJson / sendText / readBody（100MB 上限）（2026-08-18 新增）；readBody 补 aborted/close 监听 + 30s 超时并用 settled 标志只结算一次（客户端断网时原 Promise 永不 settle，请求体内存无法释放），sendJson 的 JSON.stringify 包 try/catch 降级 500（序列化抛错会让 res 永不 end）（2026-08-20 加固） |
+| `gui/lib/httpUtils.js` | sendJson / sendText / readBody（100MB 上限）（2026-08-18 新增）；readBody 补 aborted/close 监听 + 30s 超时并用 settled 标志只结算一次（客户端断网时原 Promise 永不 settle，请求体内存无法释放），sendJson 的 JSON.stringify 包 try/catch 降级 500（序列化抛错会让 res 永不 end）（2026-08-20 加固）；sendJson 移除 `Access-Control-Allow-Origin: *`（原配置下任意网页可跨域读取本机接口与账号凭据），浏览器仅允许同源访问（2026-08-21 安全加固） |
 | `gui/lib/validator.js` | validateAccountShape（账号结构校验，与 src/util/Validator.ts 字段规则对齐）（2026-08-18 新增）；email 补长度 ≤254（RFC 5321）、禁空白/控制字符、禁 `< > " ' \` &`（畸形邮箱会写进 accounts.json、破坏日志行结构并回显前端），proxy.port 收紧为 0-65535 整数（2026-08-20 加固） |
 | `gui/lib/logger.js` | parseLogLine / listLogFiles / readLogFile（2026-08-18 新增）；parseLogLine 解析前剥离行尾 `\r`（JS 正则的 `.` 不匹配 `\r`，CRLF 日志会被整行丢弃导致统计归零），readLogFile 以 `YYYY-MM-DD` 白名单校验并自动补 `.log` 后缀（原先按日期查询恒返回空，且 dateStr 可穿越目录）（2026-08-20 修复） |
 | `gui/lib/summary.js` | summarizeLogs / summarizeAllLogs / generateSummary / writeSummaryFile；收益口径：ACCOUNT-END 累加 + 本地时区日期键 + todayTotal（2026-08-18/19 新增）；summarizeLogs 取 `e.message \|\| ''` 后再匹配，残缺条目不再抛 TypeError（2026-08-20 加固） |
@@ -31,8 +31,8 @@
 | `gui/lib/taskManager.js` | startTask / stopTask / getTaskStatus（子进程 spawn node dist/index.js，SIGTERM→10s SIGKILL 兜底，500 行环形日志缓冲）（2026-08-18 新增）；运行判定改用 `exitCode/signalCode`（`killed` 仅表示信号已发出，SIGTERM 后进程最多再存活 10s），启动加 `starting` 互斥 + 3s 节流，避免并发请求/重复点击先后拉起多个脚本进程（2026-08-20 加固） |
 | `gui/lib/logCache.js` | 日志摘要缓存：getCachedData / generateCache / isCacheFresh / invalidateCache，缓存文件 `gui/cache/account-summary.json`；用「文件名+大小+mtime」集合快照判定新鲜度（导入的 zip 解压会保留旧 mtime，单一"最新 mtime"判定会漏掉新导入日志），tmp+rename 原子写入；读取/重建异常降级为空摘要（缓存是性能优化，不应成为可用性单点）（2026-08-19 新增 / 2026-08-20 补异常兜底） |
 | `gui/lib/routes/static.js` | 静态页 + `/css/*` `/js/*` 分发（防路径穿越黑名单）（2026-08-18 新增） |
-| `gui/lib/routes/config.js` | 配置 CRUD：GET/PUT `/api/config`、POST `/api/config/reset`、POST `/api/config/open`（2026-08-18 新增）；合并写回时对 `current.searchSettings` 做空值保护（缺该键时读 `.chinaApi` 会抛 TypeError 使保存整体失败）（2026-08-20 修复）；顶层字段改白名单校验（`ALLOWED_TOP_LEVEL`，来源 src/config.example.json 的 14 个顶层键，新增配置项需同步），未知字段返回 400 而非落盘污染 config.json（2026-08-20 加固） |
-| `gui/lib/routes/accounts.js` | 账号 CRUD：GET/POST `/api/accounts`、PUT/DELETE `/api/accounts/:email`（.bak 备份+回滚）（2026-08-18 新增）；GET 分支校验数组结构与 email 类型，避免脏 accounts.json 触发 TypeError 终止进程（2026-08-20 加固） |
+| `gui/lib/routes/config.js` | 配置 CRUD：GET/PUT `/api/config`、POST `/api/config/reset`、POST `/api/config/open`（2026-08-18 新增）；合并写回时对 `current.searchSettings` 做空值保护（缺该键时读 `.chinaApi` 会抛 TypeError 使保存整体失败）（2026-08-20 修复）；顶层字段改白名单校验（`ALLOWED_TOP_LEVEL`，来源 src/config.example.json 的 14 个顶层键，新增配置项需同步），未知字段返回 400 而非落盘污染 config.json（2026-08-20 加固）；PUT 加模块级写互斥锁 `isWriting`：写入期间到达的并发请求返回 409「系统正忙，请稍后重试」，`finally` 释放锁；readBody 后 `setImmediate` 让出事件循环，保证同一批并发请求先完成锁检查（本地回环小请求体同包缓冲时若不让出，前一请求会在后一请求回调前完成并释放锁，锁形同虚设）（2026-08-21 修复） |
+| `gui/lib/routes/accounts.js` | 账号 CRUD：GET/POST `/api/accounts`、PUT/DELETE `/api/accounts/:email`（.bak 备份+回滚）（2026-08-18 新增）；GET 分支校验数组结构与 email 类型，避免脏 accounts.json 触发 TypeError 终止进程（2026-08-20 加固）；GET 对 `password`/`totpSecret` 脱敏为 `******`（原先原样下发全部账号凭据）；PUT 把回传的脱敏占位符视为「未修改」剔除，防止前端编辑其他字段时把占位符覆盖写入真实凭据（2026-08-21 安全加固） |
 | `gui/lib/routes/logs.js` | 日志：GET `/api/logs`、导出/导入 zip、GET `/api/logs/:date`、GET `/api/logs/summary`（2026-08-18 新增）；GET `/api/logs` 校验 req.method 返回 405（2026-08-20 加固） |
 | `gui/lib/routes/sessions.js` | Session zip 导入/导出（白名单 session_*.json + 防穿越 + .bak）（2026-08-18 新增） |
 | `gui/lib/routes/data.js` | 一键数据导入/导出（sessions+logs+accounts.json+config.json 打包恢复）（2026-08-18 新增） |
@@ -47,7 +47,7 @@
 | `gui/css/main.css` | 公共样式：卡片阴影/滚动条/图表占位 + 按钮组件类（.btn 家族）+ 弹窗/开关/进度条动效 + reduced-motion 降级（2026-08-19/20 扩充） |
 | `gui/css/animations.css` | 图表容器辅助样式（user-select 禁用、加载占位骨架） |
 | `gui/js/animator.js` | Chart.js 动画工具：chartAnimOptions（x 锚定 + y 从 0 生长）+ smoothUpdateChart（保留当前高度过渡，显式 400ms，reduced-motion 0ms）（2026-08-20 收敛时长） |
-| `gui/js/app.js` | 前端核心交互逻辑（加载/渲染/任务/导入导出/弹窗/SSE 保活/全局配置即时保存/首次打开提示持久化）；escapeHtml 恢复真实 HTML 实体转义（原实现四个 replace 的替换目标与源字符相同 → 等同未转义，配合 innerHTML 渲染构成存储型 XSS），账号卡片按钮改 `data-email` + 事件委托（HTML 属性先实体解码再作 JS 解析，内联 onclick 拼接用户数据无法靠转义防注入）（2026-08-20 安全修复） |
+| `gui/js/app.js` | 前端核心交互逻辑（加载/渲染/任务/导入导出/弹窗/SSE 保活/全局配置即时保存/首次打开提示持久化）；escapeHtml 恢复真实 HTML 实体转义（原实现四个 replace 的替换目标与源字符相同 → 等同未转义，配合 innerHTML 渲染构成存储型 XSS），账号卡片按钮改 `data-email` + 事件委托（HTML 属性先实体解码再作 JS 解析，内联 onclick 拼接用户数据无法靠转义防注入）（2026-08-20 安全修复）；本地 Token 集成：页面加载先调 `/api/auth/token` 缓存令牌，新增 `apiFetch` 统一封装（自动携带 `X-Auth-Token`、401 时提示并刷新页面），全部业务请求与 SSE 保活（`?token=` 查询参数）改走令牌通道（2026-08-21 安全加固） |
 | `gui/summary.json` | `--generate-summary` CLI 生成的持久化统计产物（不入库） |
 | `gui/gui-settings.json` | GUI 专属设置（端口等，与脚本核心 config.json 隔离）：`/api/gui-settings` 读写、start/stop-gui.bat 启动时动态读取（2026-08-20 纳入 CodeMap） |
 
@@ -56,6 +56,7 @@
 | 接口 | 方法 | 参数 | 说明 |
 |------|------|------|------|
 | `/` | GET | - | 返回 gui/design-reference.html |
+| `/api/auth/token` | GET | - | 获取本地访问令牌（每次启动随机生成；免鉴权；除本接口外所有 `/api/*` 均需携带 `X-Auth-Token`，SSE 可用 `?token=`） |
 | `/api/accounts` | GET | - | 返回账号列表（经 summarizeAllLogs 关联全量日志摘要） |
 | `/api/accounts` | POST | JSON 账号对象 | 新增账号（补全默认字段→重复检查→备份 .bak→写回） |
 | `/api/accounts/:email` | PUT | JSON 账号对象 | 更新账号（备份 .bak→校验→合并写回） |
@@ -83,6 +84,9 @@
 
 ### 关键设计决策
 
+- **本地 Token 鉴权 + CORS 收紧（2026-08-21）**：启动时 `crypto.randomBytes(32)` 生成一次性令牌；前端页面加载时调 `GET /api/auth/token` 领取并缓存，所有业务请求经 `apiFetch` 统一携带 `X-Auth-Token`，401 时提示并刷新页面；同时移除全部 JSON 响应的 `Access-Control-Allow-Origin: *`——跨站网页既读不到令牌接口的响应，也调不动任何接口（此前本机任意网页可读走全部账号凭据、启停任务）。安全边界说明：令牌接口本身免鉴权（本机进程可通过 curl 获取），但本机进程本就处于信任边界内（可直接读 accounts.json），鉴权的防御对象是浏览器中的跨站网页。
+- **配置写互斥（2026-08-21）**：`PUT /api/config` 加模块级 `isWriting` 锁，写入期间到达的并发请求返回 409「系统正忙，请稍后重试」；readBody 后 `setImmediate` 让出事件循环，使同一批并发请求先完成锁检查（本地回环下小请求体与请求头同包缓冲，若不让出，前一请求会在后一请求的 request 回调前完成并释放锁，20 并发实测仍全部 200）。`POST /api/config/reset` 未纳入互斥（仅手动触发），属已知小面。
+- **进程级单实例保护（2026-08-21）**：项目根 `.gui.pid` 记录进程号，启动前检测存活实例则友好提示退出；选 pid 文件而非端口检测的原因——Windows 上 SO_REUSEADDR 语义允许第二个进程重复 bind 同一端口，EADDRINUSE 会漏判（保留作为 Linux/macOS 的兜底）。正常退出时清理 pid 文件，`taskkill /f` 强杀残留由下次启动的存活检测兜底。
 - **日志目录固定为项目根目录 `logs/`**（与 Logger.ts 写入位置一致）。
 - **账户保存流程**：备份 `.bak` → 校验 → 合并写入 → 4 空格缩进写回，失败自动恢复。
 - **请求体限制**：readBody 100MB（session/日志/数据导入共用）。
@@ -240,4 +244,5 @@
 
 | 日期 | 内容 |
 |------|------|
+| 2026-08-21 | **安全加固：本地 Token 鉴权 + 配置写锁 + 单实例保护**（详见 `gui/CHANGELOG.md` 同日条目） |
 | 2026-08-19 | `.gitignore` 再调整（检查报告确认）：①删除 `/.agents` 规则——`.agents/skills/rewards-server-actions/` 技能文件与 `skills-lock.json` 需保留追踪，原忽略规则与现状矛盾；②`Microsoft-Rewards-Script.rar` 改通用 `*.rar`；③新增 `scripts/mac/mac的运行脚本`（中文名说明文件，`git rm --cached` 移出索引，本地保留）、`更新同步原项目.txt`（本地 git 命令备忘，同上）、`test/data/`（测试日志含真实邮箱，不提交） |

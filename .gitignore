@@ -59,6 +59,7 @@ coverage/
 gui/summary.json
 gui/gui-settings.json
 gui/cache/
+.gui.pid
 *.bak
 *.tmp
 *.temp

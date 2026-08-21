@@ -11,6 +11,7 @@ const { test, describe, before, after } = require('node:test')
 const assert = require('node:assert')
 const fs = require('node:fs')
 const path = require('node:path')
+const http = require('node:http')
 const { spawnSync } = require('node:child_process')
 
 const H = require('./helpers/sandbox')
@@ -594,12 +595,30 @@ describe('I-P 并发与高频操作', () => {
         assert.strictEqual(bad.length, 0, `${bad.length}/30 个请求失败（缓存并发重建异常）`)
     })
 
-    test('I-P03 20 并发 PUT /api/config 后配置文件仍为合法 JSON', async () => {
-        const results = await Promise.all(Array.from({ length: 20 }, (_, i) =>
+    test('I-P03 并发 PUT /api/config 仅第一个成功、其余 409，且客户端中断后锁能释放【期望依据：写互斥锁——多标签页并发保存原先全部 200 且最后写入者胜，会静默覆盖对方修改】', async () => {
+        // 确定性占锁：声明大 Content-Length 但只发送部分请求体，使服务端 readBody 挂起、
+        // isWriting 保持 true；再并发打其余 19 个请求，断言全部 409。
+        const token = await H.getAuthToken(BASE)
+        const holder = http.request(`${BASE}/api/config`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-Auth-Token': token, 'Content-Length': 8 * 1024 * 1024 }
+        })
+        holder.on('error', () => { /* 占锁请求被中断属预期 */ })
+        holder.write('{"globalTimeout":"60s","pad":"')
+        await new Promise(r => setTimeout(r, 100))
+
+        const others = await Promise.all(Array.from({ length: 19 }, (_, i) =>
             H.request(BASE, '/api/config', { method: 'PUT', json: { globalTimeout: `${20 + i}s` } })
         ))
-        const bad = results.filter(r => r.status !== 200)
-        assert.strictEqual(bad.length, 0, `${bad.length}/20 个写请求失败`)
+        const busy = others.filter(r => r.status === 409)
+        assert.strictEqual(busy.length, 19, `其余并发请求应全部 409（实际 ${busy.length}/19，成功数 ${others.filter(r => r.status === 200).length}）`)
+        for (const r of busy) assert.strictEqual(r.json.error, '系统正忙，请稍后重试')
+
+        // 中断占锁请求 → readBody reject → finally 释放锁；随后再写应成功（锁未死锁）
+        holder.destroy()
+        await new Promise(r => setTimeout(r, 100))
+        const after = await H.request(BASE, '/api/config', { method: 'PUT', json: { globalTimeout: '30s' } })
+        assert.strictEqual(after.status, 200, '占锁请求中断后锁未释放，后续保存被永久 409')
         assert.doesNotThrow(() => readConfigFile(), 'config.json 被并发写坏')
     })
 
@@ -623,5 +642,95 @@ describe('I-P 并发与高频操作', () => {
         assert.ok(cost < 20000, `大请求体处理耗时 ${cost}ms`)
         const alive = await H.request(BASE, '/api/task')
         assert.strictEqual(alive.status, 200)
+    })
+})
+
+// ============ 鉴权、CORS 与凭据脱敏（2026-08-21 安全加固） ============
+describe('I-SEC 本地 Token 鉴权与敏感信息防护', () => {
+    test('I-SEC01 无令牌访问 /api/config 返回 401', async () => {
+        const r = await H.request(BASE, '/api/config', { auth: false })
+        assert.strictEqual(r.status, 401)
+        assert.match(r.json.error, /未授权/)
+    })
+
+    test('I-SEC02 错误令牌访问写接口返回 401 且不产生副作用', async () => {
+        const r = await H.request(BASE, '/api/config', {
+            method: 'PUT',
+            json: { headless: true },
+            auth: false,
+            headers: { 'X-Auth-Token': 'wrong-token' }
+        })
+        assert.strictEqual(r.status, 401)
+        assert.strictEqual(readConfigFile().headless, false, '错误令牌请求不应落盘')
+    })
+
+    test('I-SEC03 无令牌访问 /api/start 返回 401【期望依据：CORS * 时期恶意网页可跨域 GET 拉起脚本子进程】', async () => {
+        const r = await H.request(BASE, '/api/start', { method: 'POST', auth: false })
+        assert.strictEqual(r.status, 401)
+    })
+
+    test('I-SEC04 GET /api/auth/token 免鉴权且返回 256 位随机令牌', async () => {
+        const r = await H.request(BASE, '/api/auth/token', { auth: false })
+        assert.strictEqual(r.status, 200)
+        assert.match(r.json.token, /^[0-9a-f]{64}$/)
+    })
+
+    test('I-SEC05 每次启动生成的令牌互不相同（防旧令牌复用）', async () => {
+        // 注意：同一沙箱路径的 server.js 受 require 缓存保护不会重复执行，必须用新沙箱副本
+        const SB2 = H.createSandbox('token')
+        const srv2 = H.startServerInProcess(SB2, H.pickPort())
+        try {
+            const t1 = await H.getAuthToken(BASE)
+            const t2 = await H.getAuthToken(srv2.base)
+            assert.notStrictEqual(t1, t2, '两个实例不应共享同一令牌')
+        } finally {
+            await srv2.close()
+            H.removeSandbox(SB2)
+        }
+    })
+
+    test('I-SEC06 ?token= 查询参数可替代请求头（SSE EventSource 无法自定义头）', async () => {
+        const token = await H.getAuthToken(BASE)
+        const r = await H.request(BASE, `/api/task?token=${token}`, { auth: false })
+        assert.strictEqual(r.status, 200)
+    })
+
+    test('I-SEC07 所有 JSON 响应不再携带 Access-Control-Allow-Origin【期望依据：CORS * 下任意网页可跨域读取本机接口与凭据】', async () => {
+        const r = await H.request(BASE, '/api/config')
+        assert.strictEqual(r.status, 200)
+        assert.ok(!r.headers.get('access-control-allow-origin'), `仍返回 CORS 头: ${r.headers.get('access-control-allow-origin')}`)
+        const denied = await H.request(BASE, '/api/config', { auth: false })
+        assert.ok(!denied.headers.get('access-control-allow-origin'), '401 响应也不应带 CORS 头')
+    })
+
+    test('I-SEC08 GET /api/accounts 对 password 与 totpSecret 脱敏', async () => {
+        const r = await H.request(BASE, '/api/accounts')
+        assert.strictEqual(r.status, 200)
+        for (const acc of r.json.accounts) {
+            assert.strictEqual(acc.password, '******', `password 未脱敏: ${acc.email}`)
+            assert.strictEqual(acc.totpSecret, '******', `totpSecret 未脱敏: ${acc.email}`)
+        }
+        assert.ok(!JSON.stringify(r.json).includes('Passw0rd!'), '响应中不应出现明文密码')
+    })
+
+    test('I-SEC09 PUT 回传脱敏占位符不应覆盖磁盘真实密码', async () => {
+        const email = 'placeholder@example.com'
+        const created = await H.request(BASE, '/api/accounts', { method: 'POST', json: { email, password: 'RealPass123!' } })
+        assert.strictEqual(created.status, 200)
+        // 模拟前端编辑其他字段时原样回传 GET 得到的脱敏值
+        const body = { ...H.fixtureAccount(email), password: '******', totpSecret: '******', geoLocale: 'us' }
+        const updated = await H.request(BASE, `/api/accounts/${encodeURIComponent(email)}`, { method: 'PUT', json: body })
+        assert.strictEqual(updated.status, 200)
+        const disk = readAccountsFile().find(a => a.email === email)
+        assert.strictEqual(disk.password, 'RealPass123!', '真实密码被占位符覆盖')
+        assert.strictEqual(disk.geoLocale, 'us', '非敏感字段应正常更新')
+        await H.request(BASE, `/api/accounts/${encodeURIComponent(email)}`, { method: 'DELETE' })
+    })
+
+    test('I-SEC10 携带正确令牌时既有接口全部正常（回归守护）', async () => {
+        for (const p of ['/api/config', '/api/accounts', '/api/task', '/api/stats', '/api/logs', '/api/gui-settings']) {
+            const r = await H.request(BASE, p)
+            assert.strictEqual(r.status, 200, `${p} 带令牌后异常`)
+        }
     })
 })
