@@ -245,7 +245,7 @@
 
 | 日期 | 内容 |
 |------|------|
-| 2026-08-21 | **setup.bat 安装修复（npm 11.17 EALLOWSCRIPTS）**：`npm run pre-build` 嵌套执行 `npm i` 时，父 npm 把用户 `.npmrc` 的 `allow-scripts` 配置以环境变量传给子 npm，被误判为 `--allow-scripts` CLI 标志而报 EALLOWSCRIPTS（新克隆目录首次安装必现；`package.json` 声明 `allowScripts` 字段亦无法覆盖环境变量）。修复：`setup.bat` 改为顶层 `call npm i`（含失败检查），`package.json` 的 `pre-build` 收敛为 `rimraf dist && npx patchright install chromium`（详见 `gui/CHANGELOG.md` 同日条目） |
+| 2026-08-21 | **`package.json`/`setup.bat` 回滚至上游版本**：曾尝试修复 npm 11.17 EALLOWSCRIPTS（`npm run pre-build` 嵌套 `npm i` 触发），后按用户要求撤销——`package.json` 的 `pre-build` 恢复为 `npm i && rimraf dist && npx patchright install chromium`、`setup.bat` 恢复为直接 `call npm run pre-build`，与上游仓库保持一致；该问题的处理不通过修改 gui 以外文件解决 |
 | 2026-08-21 | **次要问题收尾：P2 清零 + 工程化补全**（详见 `gui/CHANGELOG.md` 同日条目）：D18 前端超时/轮询退避（R-F03/R-F04 转绿，测试 157 用例全绿）、HTTP 服务超时、日志接口 405 补全、archive 路径拼接注入修复、`package.json` test 脚本、`.bak` 轮转（保留最近 5 个）与 cache 7 天清理 |
 | 2026-08-21 | **安全加固：本地 Token 鉴权 + 配置写锁 + 单实例保护**（详见 `gui/CHANGELOG.md` 同日条目） |
 | 2026-08-19 | `.gitignore` 再调整（检查报告确认）：①删除 `/.agents` 规则——`.agents/skills/rewards-server-actions/` 技能文件与 `skills-lock.json` 需保留追踪，原忽略规则与现状矛盾；②`Microsoft-Rewards-Script.rar` 改通用 `*.rar`；③新增 `scripts/mac/mac的运行脚本`（中文名说明文件，`git rm --cached` 移出索引，本地保留）、`更新同步原项目.txt`（本地 git 命令备忘，同上）、`test/data/`（测试日志含真实邮箱，不提交） |

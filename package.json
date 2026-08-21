@@ -8,7 +8,7 @@
         "node": ">=24.0.0"
     },
     "scripts": {
-        "pre-build": "rimraf dist && npx patchright install chromium",
+        "pre-build": "npm i && rimraf dist && npx patchright install chromium",
         "build": "rimraf dist && tsc",
         "test": "node --test --test-isolation=none test/gui/*.test.js",
         "start": "node ./dist/index.js",
