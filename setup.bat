@@ -86,6 +86,17 @@ if not exist "src\config.json" (
 ) else (
     echo config.json文件已存在。
 )
+:: 安装依赖（2026-08-21 修复：npm i 必须顶层执行——npm run 嵌套调用 npm i 时，
+:: 父 npm 会把 .npmrc 的 allow-scripts 配置传给子 npm，被误判为 --allow-scripts 标志
+:: 而报 EALLOWSCRIPTS。改为在 bat 中直接调用后，pre-build 仅保留清理与浏览器安装）
+echo 正在安装依赖...
+call npm i
+if %ERRORLEVEL% neq 0 (
+    echo 依赖安装失败，请检查错误信息。
+    pause
+    exit /b 1
+)
+
 :: 预构建项目
 echo 正在预构建项目...
 call npm run pre-build
