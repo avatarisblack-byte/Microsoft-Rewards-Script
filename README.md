@@ -1,14 +1,16 @@
 <div align="center">
 
-# 微软奖励脚本
+# 微软奖励脚本（GUI 版）
 
 [![Version](https://img.shields.io/badge/version-3.1.6.4-blue.svg)](./package.json)
+[![GUI](https://img.shields.io/badge/GUI-v2.1.0-green.svg)](./gui/design-reference.html)
 [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D24-green.svg)](./package.json)
-[![Last Sync](https://img.shields.io/badge/最后同步-2026--06--15-orange.svg)](#-同步与致谢)
 [![Upstream](https://img.shields.io/badge/上游-TheNetsky/Microsoft--Rewards--Script-informational.svg)](https://github.com/TheNetsky/Microsoft-Rewards-Script)
 
-**基于 TypeScript · Playwright · Cheerio 的微软奖励自动化脚本**
+**基于 TypeScript · Playwright · Cheerio 的微软奖励自动化脚本 + 浏览器可视化管理面板（GUI）**
+
+本项目 fork 自 [TheNetsky/Microsoft-Rewards-Script](https://github.com/TheNetsky/Microsoft-Rewards-Script)，在原脚本的基础上**新增 `gui/` 控制面板**——不用碰 JSON 和命令行，在浏览器里点一点即可完成账号管理、配置调整、统计查看与任务启停。
 
 针对国内用户深度本地化：✅ 中国热搜查询源（百度/头条/抖音/微博/知乎） · ✅ 日志中文化 · ✅ PushPlus 微信推送
 
@@ -22,24 +24,83 @@
 > 两分支配置文件结构不同，**互不兼容**。
 
 ---
----
 
 ## 📑 目录
 
-- [✨ 核心特性](#-核心特性)
-- [🚀 快速开始](#-快速开始)
-- [📦 Windows 部署](#-windows-部署)
-- [🐳 Docker 部署](#-docker-部署)
-- [⚙️ 配置参考](#-配置参考)
+- [🖥 GUI 控制面板（本仓库新增）](#-gui-控制面板本仓库新增)
+  - [快速开始](#1-快速开始)
+  - [四大面板功能总览](#2-四大面板功能总览)
+  - [安全设计](#3-安全设计)
+  - [测试与质量](#4-测试与质量)
+- [🤖 自动化脚本（上游核心）](#-自动化脚本上游核心)
+- [🚀 脚本部署](#-脚本部署)
+  - [Windows 部署](#-windows-部署)
+  - [Docker 部署](#-docker-部署)
+- [⚙️ 配置参考](#️-配置参考)
 - [🔔 通知渠道](#-通知渠道)
+- [📚 文档索引](#-文档索引)
 - [❓ 常见问题](#-常见问题)
-- [⚠️ 注意事项](#-注意事项)
+- [⚠️ 注意事项](#️-注意事项)
 - [📜 同步与致谢](#-同步与致谢)
-- [⚠️ 免责声明](#-免责声明)
+- [⚠️ 免责声明](#️-免责声明)
 
 ---
 
-## ✨ 核心特性
+## 🖥 GUI 控制面板（本仓库新增）
+
+> 本仓库相对于上游的最大增量：`gui/` 目录下的零依赖 Web 控制台。
+> 详细操作手册见 [`gui/README.md`](gui/README.md)，本节为快速上手与安全设计摘要。
+
+### 1. 快速开始
+
+```bat
+1. 安装环境：双击 setup.bat（安装依赖 + 构建脚本 + 安装浏览器；GUI 本身零依赖，仅用 Node 内置模块）
+2. 启动面板：双击 gui/start-gui.bat
+   （或双击 gui/start-gui-silent.vbs 静默后台启动，无 CMD 窗口，日常推荐）
+3. 浏览器自动打开 http://localhost:3000，开始管理账号 / 配置 / 任务
+```
+
+- **停止服务**：面板右上角「关闭服务」，或双击 `gui/stop-gui.bat`（按端口精准停止，不误杀其他 Node 脚本）
+- **更换端口**：「全局设置 → GUI 本地端口」（1024-65535，即改即存，重启后生效；端口存于 `gui/gui-settings.json`，与脚本核心 `config.json` 隔离）
+- **页面即生命周期**：SSE 长连接保活——**刷新页面不掉服务**（断开后 5s 静默期优雅降级），真正关闭页面且超时后服务自动退出
+- **首次引导**：首次打开自动弹出「环境安装」提示，勾选"不再提示"后不再打扰
+
+### 2. 四大面板功能总览
+
+| 面板 | 能力 |
+|------|------|
+| 📊 **仪表盘总览** | 账户总数、今日/累计收益（日志口径）、任务启停、最近 100 行实时任务日志（智能滚动）、账户卡片状态 Tag + 收益条、一键导出/导入全部本地数据 |
+| 👤 **账号管理** | 账号增删改查（邮箱/密码/2FA 密钥/恢复邮箱）、独立代理、`geoLocale`/`langCode`/指纹设置、Session 登录会话 zip 导入导出（`session_*.json` 白名单） |
+| 📈 **数据统计** | 历史总收益/今日收益/累计活跃天数、Chart.js 每日积分堆叠柱状图（零收益账号自动隐藏、平滑过渡动画）、账号累计收益排行 |
+| ⚙️ **全局设置** | 无头模式、任务开关、搜索行为、中国区 API Key 等**即改即存**（checkbox 立即提交、文本 500ms 防抖 + Toast 提示）；高风险字段锁定只读；「打开配置文件」/「重置默认」 |
+
+**其他**：日志查看/按日期解析/zip 导入导出、任务子进程启停（`spawn node dist/index.js`，SIGTERM→10s SIGKILL 兜底）、数据统计缓存（30s 轮询零全量扫描）。
+
+### 3. 安全设计
+
+| 机制 | 说明 |
+|------|------|
+| 🔐 **本地 Token 鉴权** | 服务每次启动生成 256 位随机令牌；所有 `/api/*` 请求必须携带 `X-Auth-Token`（SSE 保活走 `?token=` 查询参数），否则返回 401 |
+| 🚫 **CORS 收紧** | 已移除 `Access-Control-Allow-Origin: *`——跨站网页既读不到令牌接口的响应，也调不动任何接口 |
+| 🙈 **凭据脱敏** | `GET /api/accounts` 对 `password`/`totpSecret` 返回 `******`；编辑其他字段时回传的占位符自动视为"未修改"，不会覆盖真实凭据 |
+| 🔒 **配置写互斥锁** | `PUT /api/config` 加写锁，写入期间并发请求返回 409「系统正忙，请稍后重试」，杜绝多标签页"最后写入者胜"的静默覆盖 |
+| 🚧 **单实例保护** | 项目根 `.gui.pid` 存活检测，检测到已有实例运行则友好提示退出，防止多开实例并发写坏配置文件 |
+| 💾 **写操作备份回滚** | 账号/配置/导入等全部写操作先备份 `.bak`，写入失败自动回滚 |
+| 🧱 **导入白名单 + 防穿越** | Session 只收 `session_*.json`、日志只收 `*.log`；双重相对路径检查防 zip slip |
+| 🏠 **本机隔离** | 服务仅监听 `127.0.0.1`，数据不联网；请求体 100MB 上限 |
+
+### 4. 测试与质量
+
+- **自动化测试**：`node --test --test-isolation=none test/gui/*.test.js`（零依赖 `node:test` + tmp 沙箱隔离，仓库文件零改动）——**153 用例**，覆盖 25+ 个接口的正常/边界/异常输入、并发压力、XSS/zip slip/CRLF/脏数据崩溃、鉴权、写锁与生命周期
+- **覆盖率**：后端行覆盖 70.9%、函数覆盖 88.7%（`NODE_V8_COVERAGE` + `test/gui/coverage-report.js`）
+- **真机验证**：XSS 纯文本渲染、令牌链路、跨站窃取令牌被 CORS 拦截、单实例保护均经浏览器实测
+- 详细报告见 [`gui/TEST_REPORT.md`](gui/TEST_REPORT.md)，变更历史见 [`gui/CHANGELOG.md`](gui/CHANGELOG.md)
+
+---
+
+## 🤖 自动化脚本（上游核心）
+
+以下为 fork 自上游的自动化脚本能力（TypeScript v3.1.6.4）：
 
 **账户管理**
 - ✅ 多账户支持
@@ -82,25 +143,23 @@
 
 ---
 
-## 🚀 快速开始
+## 🚀 脚本部署
+
+> 💡 **有 GUI 面板后，Windows 用户的账号/配置通常直接在面板里操作即可**；`setup.bat` 装好环境后，日常只需双击 `gui/start-gui.bat`。
+> 若偏好纯命令行 / 无 GUI 场景，按以下方式部署脚本本身。
 
 本脚本支持两种部署方式，**按你的场景二选一即可**：
 
 | 维度 | 📦 Windows 直跑 | 🐳 Docker |
 |---|---|---|
-| **配置方式** | 手动编辑 `accounts.json` + `config.json` | `.env` + `compose.yaml` 环境变量 |
+| **配置方式** | 手动编辑 `accounts.json` + `config.json`（或直接用 GUI 面板） | `.env` + `compose.yaml` 环境变量 |
 | **调度** | 手动 / 计划任务 | 内置 cron |
 | **headless** | 可选（可见窗口） | 强制 `true`（无显示器） |
 | **数据持久化** | `sessions/` 目录 | `./config/` + `./sessions/` 挂载 |
 | **升级方式** | `git pull` + `npm run build` | `docker compose up -d --build` |
 | **前置要求** | Node.js 24+ | Docker + Docker Compose |
 
-
-详细步骤见下方对应章节。
-
----
-
-## 📦 Windows 部署
+### 📦 Windows 部署
 
 > ⚠️ 本项目所有改动基于 Win11 系统测试，其他系统请参考[原项目](https://github.com/TheNetsky/Microsoft-Rewards-Script)相关配置。
 
@@ -109,8 +168,8 @@
 
 1. 下载或克隆源代码
 2. Win 系统运行 `setup.bat` 部署环境（若 `setup.bat` 报错，请参考下方手动设置）
-3. 在 `dist` 目录的 `accounts.json` 添加你的账户信息
-4. 按照你的喜好修改 `dist` 目录的 `config.json` 文件
+3. 在 `dist` 目录的 `accounts.json` 添加你的账户信息（或打开 GUI 面板在「账号管理」中添加）
+4. 按照你的喜好修改 `dist` 目录的 `config.json` 文件（或打开 GUI 面板在「全局设置」中调整）
 5. 运行 `npm start` 或运行 `run.bat` 启动构建好的脚本
 
 </details>
@@ -149,9 +208,8 @@
 
 </details>
 
----
+### 🐳 Docker 部署
 
-## 🐳 Docker 部署
 <details>
 Docker 下账号和行为配置都通过环境变量传入，容器启动时由 `entrypoint.sh` 自动生成 `accounts.json` 和 `config.json`，**无需手动维护这两个文件**。
 
@@ -216,12 +274,13 @@ docker compose down             # 停止并删除容器
 docker compose restart          # 重启（不重建）
 ```
 
----
 </details>
+
+---
 
 ## ⚙️ 配置参考
 
-> 编辑 `src/config.json`（Windows）或通过 `CONFIG_*` 环境变量（Docker）自定义行为。
+> 编辑 `src/config.json`（Windows，也可在 GUI「全局设置」面板可视化调整）或通过 `CONFIG_*` 环境变量（Docker）自定义行为。
 > 下面按功能分组，**点击各 summary 展开详情**。
 
 <details>
@@ -275,7 +334,7 @@ docker compose restart          # 重启（不重建）
 | `searchOnBingLocalQueries` | 使用本地查询 vs. 获取的查询 | `false` |
 | `searchSettings.scrollRandomResults` | 随机滚动搜索结果 | `true` |
 | `searchSettings.clickRandomResults` | 点击随机结果链接 | `true` |
-| `searchSettings.parallelSearching` | 桌面端/移动端搜索并行执行 | `false` |
+| `searchSettings.parallelSearching` | 桌面端/移动端搜索并行执行（GUI 中强制锁定，不允许开启） | `false` |
 | `searchSettings.queryEngines` | 查询源及顺序（数组），决定从哪些源获取搜索词 | `['china', 'local']` |
 | `searchSettings.searchResultVisitTime` | 访问搜索结果页的停留时间 | `10sec` |
 | `searchSettings.searchDelay` | 搜索之间的延迟（最小/最大） | `30sec - 1min` |
@@ -387,7 +446,26 @@ docker compose restart          # 重启（不重建）
 
 ---
 
+## 📚 文档索引
+
+| 文档 | 内容 |
+|------|------|
+| [`gui/README.md`](gui/README.md) | **GUI 控制面板完整手册**：快速开始、四大面板操作指南、安全策略、前端动效规范、接口速查、FAQ |
+| [`doc/CODE_MAP.md`](doc/CODE_MAP.md) | 项目代码地图：GUI 与 src/ 的目录结构、接口清单、关键设计决策、变更记录 |
+| [`gui/CHANGELOG.md`](gui/CHANGELOG.md) | GUI 变更历史（含最近的安全加固：Token 鉴权 / CORS 收紧 / 凭据脱敏 / 配置写锁 / 单实例保护） |
+| [`gui/TEST_REPORT.md`](gui/TEST_REPORT.md) | GUI 自动化测试报告：153 用例设计、缺陷修复对照、覆盖率、遗留风险 |
+| [`test/README.md`](test/README.md) | 测试目录说明 |
+
+---
+
 ## ❓ 常见问题
+
+<details>
+<summary><b>GUI 面板打不开 / 浏览器没自动打开？</b></summary>
+
+`start-gui.bat` 会先启动服务，随后用系统默认浏览器打开页面（CMD 原生 `start`，无 PowerShell 窗口）。若未弹出：手动访问 `http://localhost:3000`，确认命令行窗口输出的端口号一致。其余 GUI 问题（端口占用、总积分显示 0、缓存不生效等）见 [`gui/README.md`](gui/README.md) 的 FAQ。
+
+</details>
 
 <details>
 <summary><b>报错 <code>Error: browserType.launch: Executable doesn't exist</code> 怎么办？</b></summary>
@@ -434,7 +512,8 @@ docker compose up -d --build
 <details>
 <summary><b>修改 <code>accounts.json</code> / <code>config.json</code> 后怎么生效？</b></summary>
 
-- **Win 环境**：必须运行 `npm run build` 重新构建脚本
+- **GUI 面板**：即改即存（开关即时提交、文本 500ms 防抖），无需手动编辑 JSON
+- **Win 环境（手动编辑）**：必须运行 `npm run build` 重新构建脚本
 - **Docker 环境**：不要手动改容器内的 config 文件（重启会被 entrypoint 覆盖），改 `.env` 或 `compose.yaml` 后用 `docker compose up -d --build` 生效
 
 </details>
@@ -453,10 +532,10 @@ docker compose up -d --build
 ## ⚠️ 注意事项
 
 - 如果出现无法自动登录情况，请在代码执行登录过程中**手动完成网页的登录**，等待代码自动完成剩下流程。登录信息保存在 `sessions/` 目录（需要多备份），后续运行根据该目录的会话文件来运行。
-- **Win 环境**：复制或重命名 `src/accounts.example.json` 为 `src/accounts.json` 并添加您的凭据。
-- **Win 环境**：复制或重命名 `src/config.example.json` 为 `src/config.json` 并自定义您的偏好。
+- **Win 环境**：复制或重命名 `src/accounts.example.json` 为 `src/accounts.json` 并添加您的凭据（使用 GUI 面板则可在浏览器中直接添加）。
+- **Win 环境**：复制或重命名 `src/config.example.json` 为 `src/config.json` 并自定义您的偏好（使用 GUI 面板则可在浏览器中直接调整）。
 - 不要跳过配置这一步。之前的 `accounts.json` 和 `config.json` 版本与当前版本不兼容。
-- **Win 环境**：修改 `accounts.json` 或 `config.json` 后，必须运行 `npm run build` 重新构建脚本。
+- **Win 环境**：手动修改 `accounts.json` 或 `config.json` 后，必须运行 `npm run build` 重新构建脚本。
 - **Docker 环境**：账号和行为配置通过 `.env` 和 `compose.yaml` 传入，不要手动改容器内的 config 文件（重启会被 entrypoint 覆盖）。改 compose.yaml 后用 `docker compose up -d --build` 生效。
 
 ---
@@ -465,8 +544,9 @@ docker compose up -d --build
 
 本项目 fork 自 [TheNetsky/Microsoft-Rewards-Script](https://github.com/TheNetsky/Microsoft-Rewards-Script)，感谢原作者的付出。
 
-本项目不定时同步原项目代码，主要内容为**本地化处理**：
+本项目不定时同步原项目代码，在原项目基础上新增与完善了以下内容：
 
+- **🖥 GUI 控制面板（`gui/`）**：零依赖 Node 服务 + 原生前端的可视化管理界面，浏览器内完成账号/配置/统计/任务管理，含本地 Token 鉴权、凭据脱敏、配置写锁、单实例保护等安全设计
 - 针对国内用户无法访问 Google 等外网的问题，提供中国热搜查询源（百度/头条/抖音/微博/知乎）
 - 输出日志的简单中文翻译
 - 在原有基础上完善功能
@@ -479,6 +559,7 @@ docker compose up -d --build
 |---|---|
 | 上游仓库 | [TheNetsky/Microsoft-Rewards-Script](https://github.com/TheNetsky/Microsoft-Rewards-Script) |
 | 当前版本 | 3.1.6.4 |
+| GUI 版本 | v2.1.0-GUI |
 | 最后同步原项目 | 2026-06-15 |
 | License | GPL-3.0-or-later |
 
