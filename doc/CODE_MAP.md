@@ -38,7 +38,7 @@
 | `gui/lib/routes/sessions.js` | Session zip 导入/导出（白名单 session_*.json + 防穿越 + .bak）（2026-08-18 新增） |
 | `gui/lib/routes/data.js` | 一键数据导入/导出（sessions+logs+accounts.json+config.json 打包恢复）（2026-08-18 新增） |
 | `gui/lib/routes/tasks.js` | 任务：POST `/api/start`、POST `/api/stop`、GET `/api/task`（2026-08-18 新增）；三个接口均校验 req.method 并对非法方法返回 405（原先仅判断 pathname，GET 即可启停脚本子进程）（2026-08-20 加固） |
-| `gui/lib/routes/system.js` | 系统：POST `/api/shutdown`、GET `/api/stats`/`/api/summary`、GET `/api/keepalive`（SSE 保活）（2026-08-18 新增）；三个读接口校验 req.method 返回 405（2026-08-20 加固） |
+| `gui/lib/routes/system.js` | 系统：POST `/api/shutdown`、GET `/api/stats`/`/api/summary`、GET `/api/keepalive`（SSE 保活）、POST `/api/setup`（2026-08-18 新增）；三个读接口校验 req.method 返回 405（2026-08-20 加固）；`/api/setup` spawn `setup.bat` 前注入剔除 `allow-scripts` 的干净 `NPM_CONFIG_USERCONFIG`，规避用户级 `.npmrc` 的 allow-scripts 在 npm 11.17 嵌套安装下的 EALLOWSCRIPTS，不改动上游非 GUI 文件（2026-08-21） |
 | `gui/start-gui.bat` | 一键启动（常规模式）：**纯 ASCII（无中文，避免任何代码页乱码）**：`cd /d %~dp0` → node 读取 `gui-settings.json` 端口注入 `PORT`（失败回退 3000）→ 校验 server.js → ping 延迟 ~1s → CMD 原生 `start "" http://localhost:%PORT%` 开浏览器（**无 PowerShell**）→ 当前窗口前台跑 `node server.js`（日志窗口） |
 | `gui/start-gui-silent.vbs` | 静默启动（WScript.Shell 窗口模式 0 隐藏 CMD 后台跑 start-gui.bat，零窗口零 PowerShell）（2026-08-17 新增） |
 | `gui/stop-gui.bat` | 按端口（默认 3000）查 PID 并 taskkill /f 停止，避免误杀其他 Node 脚本；端口读取用 node（与 start 一致，无 PowerShell）（2026-08-17 新增） |
@@ -245,7 +245,7 @@
 
 | 日期 | 内容 |
 |------|------|
-| 2026-08-21 | **`package.json`/`setup.bat` 回滚至上游版本**：曾尝试修复 npm 11.17 EALLOWSCRIPTS（`npm run pre-build` 嵌套 `npm i` 触发），后按用户要求撤销——`package.json` 的 `pre-build` 恢复为 `npm i && rimraf dist && npx patchright install chromium`、`setup.bat` 恢复为直接 `call npm run pre-build`，与上游仓库保持一致；该问题的处理不通过修改 gui 以外文件解决 |
+| 2026-08-21 | **`package.json`/`setup.bat` 保持与上游一致，安装问题改由 GUI 侧解决**：npm 11.17 中 `npm run` 嵌套 `npm i` 会因用户级 `.npmrc` 的 `allow-scripts` 配置误报 EALLOWSCRIPTS（上游环境无此配置故 setup.bat 正常）。非 GUI 文件（`package.json`/`setup.bat`）已回滚至上游版本零差异；改为 `gui/lib/routes/system.js` 的 `/api/setup` 在 spawn `setup.bat` 前注入剔除 `allow-scripts` 的干净 `NPM_CONFIG_USERCONFIG`（详见 `gui/CHANGELOG.md` 同日条目） |
 | 2026-08-21 | **次要问题收尾：P2 清零 + 工程化补全**（详见 `gui/CHANGELOG.md` 同日条目）：D18 前端超时/轮询退避（R-F03/R-F04 转绿，测试 157 用例全绿）、HTTP 服务超时、日志接口 405 补全、archive 路径拼接注入修复、`package.json` test 脚本、`.bak` 轮转（保留最近 5 个）与 cache 7 天清理 |
 | 2026-08-21 | **安全加固：本地 Token 鉴权 + 配置写锁 + 单实例保护**（详见 `gui/CHANGELOG.md` 同日条目） |
 | 2026-08-19 | `.gitignore` 再调整（检查报告确认）：①删除 `/.agents` 规则——`.agents/skills/rewards-server-actions/` 技能文件与 `skills-lock.json` 需保留追踪，原忽略规则与现状矛盾；②`Microsoft-Rewards-Script.rar` 改通用 `*.rar`；③新增 `scripts/mac/mac的运行脚本`（中文名说明文件，`git rm --cached` 移出索引，本地保留）、`更新同步原项目.txt`（本地 git 命令备忘，同上）、`test/data/`（测试日志含真实邮箱，不提交） |

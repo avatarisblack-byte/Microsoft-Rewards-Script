@@ -4,6 +4,7 @@
  */
 const fs = require('fs')
 const path = require('path')
+const os = require('os')
 const { spawn } = require('child_process')
 
 // ===== 静默期（Grace Period）状态：客户端断开后延迟销毁，刷新页面不掉服务 =====
@@ -61,10 +62,32 @@ function handleSystem(req, res, pathname, ctx) {
             return true
         }
         try {
+            // 环境修复（2026-08-21）：本机用户级 ~/.npmrc 若含 allow-scripts 配置（开发环境注入，
+            // 上游环境无此配置），setup.bat 内「npm run 嵌套 npm i」会把继承的
+            // npm_config_allow_scripts 环境变量误判为 --allow-scripts 标志而报 EALLOWSCRIPTS。
+            // 此处 spawn 前剔除 allow-scripts 行、写入临时 userconfig 并注入 NPM_CONFIG_USERCONFIG，
+            // 不改动任何上游/仓库文件即可让「安装环境」正常跑通。
+            const env = { ...process.env }
+            const userNpmrc = path.join(os.homedir(), '.npmrc')
+            try {
+                if (fs.existsSync(userNpmrc)) {
+                    const cleaned = fs.readFileSync(userNpmrc, 'utf-8')
+                        .split(/\r?\n/)
+                        .filter(line => !/^allow-scripts(\[\]|=)/i.test(line.trim()))
+                        .join('\n')
+                    const tmpNpmrc = path.join(os.tmpdir(), `gui-setup-npmrc-${process.pid}.npmrc`)
+                    fs.writeFileSync(tmpNpmrc, cleaned ? cleaned + '\n' : '', 'utf-8')
+                    env.NPM_CONFIG_USERCONFIG = tmpNpmrc
+                }
+            } catch (e) {
+                console.warn(`[GUI] 生成安装用 npm 配置失败（回退默认配置）: ${e.message}`)
+            }
+
             const child = spawn('cmd', ['/c', 'start', '', '/min', 'setup.bat'], {
                 cwd: ctx.config.ROOT, // setup.bat 内相对路径（npm/npx）基于项目根目录
                 detached: true,
-                stdio: 'ignore'
+                stdio: 'ignore',
+                env
             })
             child.unref() // GUI 进程退出不影响 setup 继续
             console.log('[GUI] 已启动安装环境（setup.bat）')

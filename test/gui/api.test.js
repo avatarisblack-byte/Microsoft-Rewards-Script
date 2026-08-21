@@ -599,6 +599,13 @@ describe('I-Y 系统接口', () => {
         assert.strictEqual(r.status, 400)
         assert.match(r.json.error, /setup\.bat/)
     })
+
+    test('I-Y05 /api/setup 注入剔除 allow-scripts 的干净 userconfig【期望依据：用户级 .npmrc 的 allow-scripts 会让 setup.bat 嵌套 npm i 报 EALLOWSCRIPTS，GUI 侧注入 NPM_CONFIG_USERCONFIG 规避且不改上游文件】', () => {
+        const src = fs.readFileSync(path.join(SB, 'gui', 'lib', 'routes', 'system.js'), 'utf-8')
+        assert.match(src, /NPM_CONFIG_USERCONFIG/, '未发现注入干净 userconfig 的逻辑')
+        assert.match(src, /allow-scripts/, '未发现过滤 allow-scripts 的逻辑')
+        assert.match(src, /NPM_CONFIG_USERCONFIG = tmpNpmrc/, '未将临时 userconfig 写入环境变量')
+    })
 })
 
 // ============ 并发与压力 ============
