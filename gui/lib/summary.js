@@ -12,6 +12,28 @@ const path = require('path')
 const { parseLogLine } = require('./logger')
 const { LOGS_DIR } = require('./config')
 
+// run 级事件（全局/集群/进程级）：这类日志行的 [账户] 字段来自上游动态 userName，
+// 循环结束后可能残留"最后一个账号名"而非"主进程"，不能按 account 可靠过滤，
+// 必须按 event 跳过，避免污染账号卡片的 lastEvent 与运行段归属（2026-08-23）
+const RUN_LEVEL_EVENTS = new Set([
+    'RUN-START',
+    'RUN-END',
+    'CLUSTER-PRIMARY',
+    'CLUSTER-WORKER-START',
+    'CLUSTER-WORKER-TASK',
+    'CLUSTER-WORKER-EXIT',
+    'CLUSTER-WORKER-ERROR',
+    'CLUSTER-WORKER-DISCONNECT',
+    'PROCESS',
+    'MAIN-ERROR',
+    'UNCAUGHT-EXCEPTION',
+    'UNHANDLED-REJECTION',
+])
+
+function isRunLevelEvent(event) {
+    return RUN_LEVEL_EVENTS.has(event)
+}
+
 // 由 UTC ISO 时间戳换算本地日期 YYYY-MM-DD（避免 toLocaleString 系统区域格式差异）
 function toLocalDateKey(utcTime, fallback) {
     if (utcTime) {
@@ -29,7 +51,7 @@ function toLocalDateKey(utcTime, fallback) {
 function summarizeLogs(entries) {
     const accounts = {}
     for (const e of entries) {
-        if (!e || e.account === '主进程') continue
+        if (!e || e.account === '主进程' || isRunLevelEvent(e.event)) continue
         if (!accounts[e.account]) {
             accounts[e.account] = { account: e.account, entries: 0, lastEvent: null, lastLevel: null, lastTime: null, lastMessage: null, collectedPoints: null, initialPoints: null, finalPoints: null }
         }
@@ -118,7 +140,7 @@ function generateSummary(logsDir = LOGS_DIR) {
         try { content = fs.readFileSync(path.join(logsDir, file), 'utf-8') } catch { continue }
         for (const line of content.split('\n')) {
             const entry = parseLogLine(line)
-            if (!entry || entry.account === '主进程') continue
+            if (!entry || entry.account === '主进程' || isRunLevelEvent(entry.event)) continue
             const dateKey = toLocalDateKey(entry.utcTime, file.replace('.log', ''))
             if (!dateKey) continue
             if (entry.event === 'ACCOUNT-START') {

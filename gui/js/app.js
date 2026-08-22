@@ -263,7 +263,7 @@
             const grandTotal = (statsCache && statsCache.grandTotal) || 0;
             totalCollectedEl.innerText = todayTotal;
             totalBalanceEl.innerText = grandTotal;
-            balanceSubEl.innerText = '今日收益 / 累计总收益（基于日志解析，含未配置账号）';
+            balanceSubEl.innerText = '今日收益 / 累计总收益（日志解析：各账号运行段累计，含未配置账号、多次运行与未完成兜底）';
 
             // 今日各账号收益映射（用于账号卡片"今日收益"，取当日累计收益而非最近一次运行）
             const todayAccountsMap = {};

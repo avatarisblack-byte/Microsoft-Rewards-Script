@@ -335,6 +335,87 @@ describe('U-S summary 统计聚合', () => {
     })
 })
 
+// ============ RUN-END 归属与收益三口径自洽（2026-08-23） ============
+// 背景：上游 RUN-END 行的 [账户] 字段被动态 userName 污染成"最后一个账号名"而非"主进程"，
+// 若仅按 account 过滤，RUN-END 会覆盖末尾账号卡片的 lastEvent，并在跨天时污染收益段归属。
+describe('U-R RUN-END 归属与收益三口径自洽', () => {
+    // 取本地今天正午的 UTC 时刻：任何时区下都归属本地今天，断言与时区无关
+    function todayNoonUtc() {
+        const now = new Date()
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0).toISOString()
+    }
+
+    test('U-R01 末尾 RUN-END 行（[账户]=末尾账号名）不覆盖其 lastEvent=ACCOUNT-END', () => {
+        const utc = todayNoonUtc()
+        const entries = [
+            logger.parseLogLine(H.logLine(utc, 'acct.c', 'INFO', '主进程', 'ACCOUNT-START', '开始处理账户: acct.c@example.com')),
+            logger.parseLogLine(H.logLine(utc, 'acct.c', 'INFO', '主进程', 'ACCOUNT-END', '已完成账户: acct.c | 总计: +132 | 原始: 500 → 新值: 632 | 持续时间: 100.0秒')),
+            // 上游污染：RUN-END 行的 [账户] = 末尾账号名（非"主进程"）
+            logger.parseLogLine(H.logLine(utc, 'acct.c', 'INFO', '主进程', 'RUN-END', '已完成所有账户 | 已处理账户: 1 | 总收集积分: +132')),
+        ]
+        const acc = summary.summarizeLogs(entries).find(a => a.account === 'acct.c')
+        assert.ok(acc, '未找到 acct.c')
+        assert.strictEqual(acc.lastEvent, 'ACCOUNT-END', `lastEvent 被 RUN-END 覆盖: ${acc.lastEvent}`)
+    })
+
+    test('U-R02 末尾账号 lastMessage 保留 ACCOUNT-END 的「总计」文案', () => {
+        const utc = todayNoonUtc()
+        const entries = [
+            logger.parseLogLine(H.logLine(utc, 'acct.c', 'INFO', '主进程', 'ACCOUNT-END', '已完成账户: acct.c | 总计: +132 | 原始: 500 → 新值: 632')),
+            logger.parseLogLine(H.logLine(utc, 'acct.c', 'INFO', '主进程', 'RUN-END', '已完成所有账户 | 总收集积分: +132')),
+        ]
+        const acc = summary.summarizeLogs(entries).find(a => a.account === 'acct.c')
+        assert.match(acc.lastMessage, /总计/, `lastMessage 不再是 ACCOUNT-END: ${acc.lastMessage}`)
+        assert.strictEqual(acc.collectedPoints, 132)
+    })
+
+    test('U-R03 三口径自洽：今日总收益 === 各账号收益之和 === RUN-END 总收集积分', () => {
+        const utc = todayNoonUtc()
+        const dir = path.join(SB, 'logs-runend')
+        fs.mkdirSync(dir, { recursive: true })
+        const lines = [
+            H.logLine(utc, '主进程', 'INFO', '主进程', 'RUN-START', '启动微软奖励脚本 | 账户数: 3'),
+            H.logLine(utc, 'acct.a', 'INFO', '主进程', 'ACCOUNT-START', '开始处理账户: acct.a@example.com'),
+            H.logLine(utc, 'acct.a', 'INFO', '主进程', 'ACCOUNT-END', '已完成账户: acct.a | 总计: +100 | 原始: 500 → 新值: 600'),
+            H.logLine(utc, 'acct.b', 'INFO', '主进程', 'ACCOUNT-START', '开始处理账户: acct.b@example.com'),
+            H.logLine(utc, 'acct.b', 'INFO', '主进程', 'ACCOUNT-END', '已完成账户: acct.b | 总计: +107 | 原始: 718 → 新值: 825'),
+            H.logLine(utc, 'acct.c', 'INFO', '主进程', 'ACCOUNT-START', '开始处理账户: acct.c@example.com'),
+            H.logLine(utc, 'acct.c', 'INFO', '主进程', 'ACCOUNT-END', '已完成账户: acct.c | 总计: +132 | 原始: 100 → 新值: 232'),
+            // RUN-END 的 [账户] 被污染成末尾账号名 acct.c，总收集积分 = 100+107+132 = 339
+            H.logLine(utc, 'acct.c', 'INFO', '主进程', 'RUN-END', '已完成所有账户 | 已处理账户: 3 | 总收集积分: +339 | 原始总计: 1318 → 新总计: 1657'),
+        ]
+        fs.writeFileSync(path.join(dir, 'runend.log'), lines.join('\n') + '\n', 'utf-8')
+        const s = summary.generateSummary(dir)
+
+        const runEndEntry = logger.parseLogLine(lines[lines.length - 1])
+        const runEndTotal = parseInt((runEndEntry.message.match(/总收集积分:\s*\+(\d+)/) || [])[1], 10)
+        const sumOfAccounts = s.daily.reduce((n, d) => n + (d.accounts || []).reduce((m, a) => m + a.points, 0), 0)
+
+        assert.strictEqual(runEndTotal, 339, `RUN-END 总收集积分应为 339，实际 ${runEndTotal}`)
+        assert.strictEqual(s.todayTotal, 339, `今日总收益应为 339，实际 ${s.todayTotal}`)
+        assert.strictEqual(sumOfAccounts, 339, `各账号收益之和应为 339，实际 ${sumOfAccounts}`)
+        assert.strictEqual(s.todayTotal, sumOfAccounts)
+        assert.strictEqual(s.todayTotal, runEndTotal)
+    })
+
+    test('U-R04 跨天 RUN-END 行不把末尾账号收益拖入次日', () => {
+        const now = new Date()
+        // 末尾账号今日 23:50 完成，RUN-END 在次日 00:05（其 [账户] 被污染成末尾账号名）
+        const endUtc = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 50, 0).toISOString()
+        const runEndUtc = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 5, 0).toISOString()
+        const dir = path.join(SB, 'logs-runend-crossday')
+        fs.mkdirSync(dir, { recursive: true })
+        const lines = [
+            H.logLine(endUtc, 'acct.c', 'INFO', '主进程', 'ACCOUNT-START', '开始处理账户: acct.c@example.com'),
+            H.logLine(endUtc, 'acct.c', 'INFO', '主进程', 'ACCOUNT-END', '已完成账户: acct.c | 总计: +132 | 原始: 500 → 新值: 632'),
+            H.logLine(runEndUtc, 'acct.c', 'INFO', '主进程', 'RUN-END', '已完成所有账户 | 已处理账户: 1 | 总收集积分: +132'),
+        ]
+        fs.writeFileSync(path.join(dir, 'runend-crossday.log'), lines.join('\n') + '\n', 'utf-8')
+        const s = summary.generateSummary(dir)
+        assert.strictEqual(s.todayTotal, 132, `末尾账号收益被 RUN-END 拖入次日，今日总收益 ${s.todayTotal}（应为 132）`)
+    })
+})
+
 // ============ archive：临时目录与压缩 ============
 describe('U-A archive 临时目录与压缩', () => {
     test('U-A01 makeTmpRoot 高频调用必须唯一【期望依据：并发导入/导出共用同名临时目录会互相覆盖 zip 并被对方 rmSync 删除】', () => {

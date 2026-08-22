@@ -31,6 +31,9 @@ test/data/
 # GUI 本地测试数据目录（guidata：脱敏/调试用，不纳入版本库）
 gui-data-*/
 
+# Agent Teams 插件运行时状态（团队成员/任务/存档，非仓库内容）
+.agent-teams/
+
 # ===== Python 缓存 =====
 __pycache__/
 *.py[cod]
